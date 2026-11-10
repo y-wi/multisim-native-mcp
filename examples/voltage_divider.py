@@ -27,14 +27,17 @@ async def create_divider(output: Path):
                     operations.append({'operation':'place','arguments':args})
                 for a,ap,b,bp in [('V1','1','R1','1'),('R1','2','R2','1'),('R2','2','V1','2'),('V1','2','0','1')]:
                     operations.append({'operation':'wire','arguments':{'source':{'ref':a,'pin':ap},'target':{'ref':b,'pin':bp}}})
-                await call('native_edit_batch',operations=operations)
+                scene=(await call('native_edit_batch',operations=operations))['state']
+                content,page=scene['content_bounds'],scene['page']['bounds']
+                if any(content[k]<page[k]+18 for k in ('left','top')) or any(content[k]>page[k]-18 for k in ('right','bottom')):
+                    raise RuntimeError('Fit the complete circuit inside the sheet before saving')
                 netlist=await call('native_check_netlist')
                 if netlist['failed']:raise RuntimeError(netlist['messages'])
                 result=await call('native_run_analysis',analysis='op')
                 current=next(v for v in result['vectors'] if v['name']=='I(V1)')
                 if current['unit']!='A' or abs(current['last']+.006)>1e-8:raise RuntimeError('Divider source current must be -0.006 A')
                 await call('native_save_copy',output_path=str(output/'voltage-divider.ms14'),overwrite=True)
-                await call('native_export_image',output_path=str(output/'voltage-divider.png'),overwrite=True,dpi=192,fit_content=True,padding=36)
+                await call('native_export_image',output_path=str(output/'voltage-divider.png'),overwrite=True,dpi=192)
                 (output/'analysis.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
             finally:
                 await call('native_close_copy')

@@ -44,7 +44,8 @@ Read [references/editing.md](references/editing.md) for batch argument names, wi
 4. Connect exact pin names from the current component results. A line touching a symbol visually does not establish a native electrical connection.
 5. Group known edits in `native_edit_batch`, with `include_state: true`, instead of rereading after every change. Placement can include indexed parameters. If the part or pin schema is unknown, place and inspect it before constructing dependent edits.
 6. After topology edits, check the netlist. If `handles_invalidated: true`, use its returned fresh `state`; if absent, reread the relevant objects. Undo, redo and rollback can also invalidate pointer IDs. Prefer component reference names for subsequent edits.
-7. Save the requested absolute `.ms14` output before closing an owned session. Output directories must exist; existing outputs require `overwrite: true`.
+7. Before saving, compare the complete `content_bounds` with `page.bounds`, including symbols, wires, labels and text. For a normal finished schematic, fit the circuit inside the sheet with a margin. Use a coherent layout edit or the native `sheetSize` batch operation; image cropping does not repair saved page geometry. See the saved-sheet procedure in [references/editing.md](references/editing.md).
+8. Save the requested absolute `.ms14` output before closing an owned session. Output directories must exist; existing outputs require `overwrite: true`. After changing sheet size or repairing off-page layout, reopen the saved output as a copy and verify its page and content bounds.
 
 ## Verify the electrical result
 
@@ -58,6 +59,6 @@ Read [references/analysis.md](references/analysis.md) for measurement schemas, s
 
 ## Finish the requested artifact
 
-Use `native_check_layout` when checking wire attachment or geometry. For overlapping reference labels, use `native_move_component_label` rather than moving the symbol. Export at a suitable DPI; use `fit_content: true` for the complete circuit, or an explicit `region` for a crop.
+Use `native_check_layout` when checking wire attachment or geometry. For overlapping reference labels, use `native_move_component_label` rather than moving the symbol. Validate the saved page with a whole-sheet export (`fit_content: false`, no `region`) at a suitable DPI. An optional content-fitted image or crop can follow; it does not establish that the saved circuit lies inside its sheet. Preserve an intentionally off-page layout when the user explicitly requests it.
 
 Report the saved circuit and requested exports, the measured result and any remaining failed criterion. Keep numeric verification distinct from visual inspection. If the user will validate the simulation themselves, deliver the edited artifact without starting additional experiments.

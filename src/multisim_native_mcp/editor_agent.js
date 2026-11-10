@@ -354,7 +354,7 @@ function generateRecord(record,args) {
   c=component(object.toString());
   const metadata=parameterInfo({ref:c.id});
   const page=pageGeometry(),offPage=args.x<0||args.y<0||args.x>page.width||args.y>page.height;
-  const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page; resize the sheet or export with fit_content.'}]:[];
+  const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page; move the circuit inside or resize the sheet before saving. Image fit_content changes export framing only.'}]:[];
   for(const p of metadata.parameters)if(p.role==='value'&&p.value===null&&!p.expression?.trim())warnings.push({code:'unset_value',reference:c.ref,index:p.index,name:p.name,message:'Set the primary component value before analysis.'});
   return {component:{...c,library:{family:metadata.info[0],name:metadata.info[1],symbol_family:metadata.info[2],model:metadata.info[3]},default_reference_prefix:stem},parameters:metadata.parameters,page,
     warnings};

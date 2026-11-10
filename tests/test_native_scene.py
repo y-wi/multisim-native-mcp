@@ -69,4 +69,26 @@ def test_off_page_routing_and_fitted_export(tmp_path):
         assert image['width']<1200 and image['height']<1000
         assert h.call('circuitState')==before
         with Image.open(image['path']) as rendered:assert any(b>r+40 for r,g,b in rendered.convert('RGB').get_flattened_data())
+        output=tmp_path/'cropped-image-original-sheet.ms14'
+        h.save_copy(str(output));h.close();h.open_copy(str(output))
+        reopened=h.call('circuitState')
+        assert reopened['page']['width']==960 and reopened['page']['height']==720
+        assert reopened['content_bounds']['right']>reopened['page']['width']
+        assert reopened['content_bounds']['bottom']>reopened['page']['height']
+        h.edit('addText',{'text':'Native sheet extent','x':3456,'y':3996})
+        content=h.call('circuitState')['content_bounds']
+        width,height=content['right']+36,content['bottom']+36
+        h.batch([{'operation':'sheetSize','arguments':{'width':width,'height':height}}])
+        output=tmp_path/'fitted-sheet.ms14'
+        h.save_copy(str(output));h.close();h.open_copy(str(output))
+        reopened=h.call('circuitState');page=reopened['page'];content=reopened['content_bounds']
+        assert (page['width'],page['height'])==(width,height)
+        assert content['left']>=0 and content['top']>=0
+        assert content['right']<=width-36 and content['bottom']<=height-36
+        for wire in reopened['wires']:
+            for end,index in [('source',0),('target',-1)]:
+                assert wire['points'][index]=={k:wire[end][k] for k in ('x','y')}
+        image=h.export_image(str(tmp_path/'saved-whole-sheet.png'))
+        assert image['off_page_components']==[]
+        assert (image['width'],image['height'])==(width,height)
     finally:h.close()

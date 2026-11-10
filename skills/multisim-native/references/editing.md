@@ -63,16 +63,35 @@ Select a sheet using its current `native_list_sheets` index. `native_create_shee
 
 Embedded model text may be shared by several components. `native_set_model_text` returns affected references across the project; inspect these before treating it as a single-instance change.
 
+## Fit the saved sheet
+
+`fit_content` and `region` affect image framing only. They restore the original page geometry after rendering. A correctly cropped image can therefore accompany an `.ms14` whose circuit is still outside its sheet.
+
+For a finished schematic:
+
+1. Read `page.bounds` and the complete `content_bounds` after placing, routing and adding text. Require `content.left >= page.left + margin`, `content.top >= page.top + margin`, `content.right <= page.right - margin` and `content.bottom <= page.bottom - margin`. A margin of 18–36 sheet units is usually sufficient. Repeat on each edited sheet.
+2. For a new modest circuit, lay it out inside the initial sheet rather than placing it thousands of units away. If an existing layout just needs more space on the right or bottom, resize the real sheet with `native_edit_batch`:
+
+   ```json
+   {"operations":[{"operation":"sheetSize","arguments":{"width":1200,"height":900}}],"include_state":true}
+   ```
+
+   Compute the required dimensions from the actual content bounds and margin; these numbers are an example. Resizing the sheet preserves component positions and electrical connections. Merely increasing width and height does not fix negative left/top coordinates. Such a layout requires moving its complete contents inward, including text, branches and wire routes; moving only the components can leave other objects behind.
+3. Reread the returned state to check containment. Save the `.ms14`, close the session after saving, then open a copy of that saved output. Verify that its sheet dimensions and content bounds persist. Select the appropriate sheet again when checking a multi-sheet project.
+4. Export the reopened saved sheet with `fit_content: false` and no `region`. Inspect this full-page image before producing any optional cropped image. If the user will verify simulation themselves, this geometry check does not require starting a simulation.
+
+An intentionally off-page layout or an image-only task can use content fitting directly when that matches the user's request.
+
 ## Image export
 
-Example arguments for `native_export_image`:
+Example whole-page arguments for `native_export_image` after the saved-sheet check:
 
 ```json
-{"output_path":"C:/Circuits/divider.png","dpi":192,"fit_content":true,"padding":36}
+{"output_path":"C:/Circuits/divider.png","dpi":192,"fit_content":false}
 ```
 
 Use an existing absolute output directory. PNG and BMP are supported. `dpi` is 36–600, `scale` applies additional scaling, and the pixel budget is 32 million. Rendering uses the native engine and leaves the schematic geometry unchanged.
 
-For a crop, replace `fit_content` with `region: {"left":100,"top":80,"right":700,"bottom":500}` in absolute sheet units. `region` and `fit_content` are mutually exclusive. If whole-page export is blank because components are outside the page, read the page and content bounds, then choose content fitting, a region, or a deliberate layout edit.
+For a detail image, use `fit_content: true` with optional `padding`, or `region: {"left":100,"top":80,"right":700,"bottom":500}` in absolute sheet units. `region` and `fit_content` are mutually exclusive. If a whole-page image omits circuit content, repair the saved sheet before accepting the schematic deliverable; a cropped export alone only fixes the image framing.
 
 Move an overlapping reference with `native_move_component_label(component_ref, x, y)`. Coordinates specify the absolute label center; read `state.components[].labels` for actual bounds. Grid snapping can affect symbol placement, so use returned positions rather than requested coordinates when checking alignment.

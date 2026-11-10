@@ -2,6 +2,7 @@
 
 ## 0.3.2
 
+- Guide agents to fit and reopen saved sheets before accepting cropped schematic images.
 - Add a portable agent skill for native editing, simulation and numeric verification.
 - Expose sheet and printing-paper dimensions, content bounds and complete circuit state.
 - Keep automatic wire routes attached to actual pin coordinates outside page boundaries.

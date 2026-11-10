@@ -38,6 +38,20 @@ Use `native_edit_batch` to place components, set their values and connect named 
 
 网表检查仅在拓扑改变时刷新连接。`handles_invalidated` 为 true 时，直接使用返回的 `state` 获取新句柄；参数、标签和几何编辑保留句柄。后续编辑优先使用元件参考号。
 
+## Saved sheet layout / 保存图纸布局
+
+Before saving a finished schematic, check that `content_bounds` lies inside `page.bounds` with a margin. Include symbols, labels, text and wire routes. Move the complete layout inside the page, or enlarge the real sheet through `native_edit_batch` with a `sheetSize` operation:
+
+保存完整原理图前，检查 `content_bounds` 是否位于 `page.bounds` 内并留有边距，检查范围包括元件、标签、文字与导线路径。可将完整电路移入图纸，或通过 `native_edit_batch` 的 `sheetSize` 操作增大真实图纸：
+
+```json
+{"operations":[{"operation":"sheetSize","arguments":{"width":1200,"height":900}}],"include_state":true}
+```
+
+Choose dimensions from actual content bounds; enlarging width and height does not correct negative left/top coordinates. Save and reopen the output to verify that the page contains the circuit, then inspect a whole-page image without `region` or `fit_content`. These image options change framing only and preserve the original saved-sheet dimensions.
+
+尺寸应依据实际内容边界确定；增加宽高不能解决左侧或上侧的负坐标。另存并重开工程，确认电路完整位于图纸内，再检查不使用 `region` 或 `fit_content` 的整页图片。这两个图片选项仅改变取景范围，会保留原有图纸尺寸。
+
 ## Images and labels / 图片与标签
 
 `native_export_image` renders at the requested DPI using the native engine. `dpi` accepts 36–600; `scale` applies additional scaling. Use `fit_content: true` and optional `padding` to include the complete circuit, including off-page objects. Alternatively, supply an absolute sheet-coordinate region:

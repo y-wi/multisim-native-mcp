@@ -110,7 +110,7 @@ def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
 @server.tool()
 @checked
 def native_save_copy(output_path: str, overwrite: bool = False) -> dict:
-    """Save through native SaveProjectDocument to a separate absolute .ms14 output path. Existing output requires explicit overwrite and is backed up."""
+    """Save through native SaveProjectDocument to a separate absolute .ms14 output path. Check content_bounds against page.bounds and resize the real sheet or move content inside before saving; fit_content image export does not resize the saved sheet. Existing output requires explicit overwrite and is backed up."""
     return host.save_copy(output_path, overwrite)
 
 
@@ -492,7 +492,7 @@ def native_auto_route_wire(wire_id: str, clearance: int = 9) -> dict:
 @server.tool()
 @checked
 def native_export_image(output_path: str, overwrite: bool = False,dpi: int = 96,scale: float = 1.,region: dict[str,int] | None = None,fit_content: bool = False,padding: int = 18) -> dict:
-    """Render PNG/BMP natively at 36-600 DPI with optional scale. Choose region {left,top,right,bottom} in sheet units or fit_content with padding. Includes off-page content without moving the circuit; at most 32 million pixels."""
+    """Render PNG/BMP natively at 36-600 DPI with optional scale. Choose region {left,top,right,bottom} in sheet units or fit_content with padding. Cropping does not resize the saved sheet: verify saved page containment with a whole-page export first. Includes off-page content without moving the circuit; at most 32 million pixels."""
     return host.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding)
 
 
