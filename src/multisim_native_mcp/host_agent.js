@@ -173,6 +173,8 @@ function setWirePoints(object,points) {
   const line=new NativeFunction(graphic.readPointer().add(0xb0).readPointer(),'pointer',['pointer'],'thiscall')(graphic);
   if(rtti(line).name!=='.?AVCODMultiLine@@')throw new Error('Unsupported wire polyline type');
   native('Od101dll.dll','?SetNewPointsArray@CODVertices@@QAEXPAVCPoint@@H@Z','void',['pointer','pointer','int'])(line,values,points.length);
+  const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  native('Od101dll.dll','?Update@CODComponent@@UAEXAAVCODInstContext@@_N@Z','void',['pointer','pointer','uint8'])(object,context,0);
 }
 function wirePen(object) {
   return ptrFunction('Od101dll.dll','?GetPen@CODVerticesComp@@QAEPAVCPen@@XZ',['pointer'])(object);
@@ -197,12 +199,18 @@ function wire(args) {
   const d=diagram(),source=component(args.source.ref),target=component(args.target.ref);
   const s=source.pins.find(p=>p.name===args.source.pin),t=target.pins.find(p=>p.name===args.target.pin);
   if(!s||!t)throw new Error('Named pin does not exist');
+  if(args.points)for(const [point,pin] of [[args.points[0],s],[args.points.at(-1),t]])if(point.x!==pin.x||point.y!==pin.y)throw new Error('Wire path endpoints must match actual pin coordinates');
   const tree=ptrFunction('DrwEngine.dll','?GetFirstTreeInstanceForSheet@CProject@@QAEPAVCTreeInstance@@PAVCDrwSubSheet@@@Z',['pointer','pointer'])(d.proj,d.sheet);
   const nativeSymbol=Process.getModuleByName('SCH_CAP.dll').enumerateExports().find(e=>e.name.startsWith('?CreateWireBase@CBackAnnotationTarget'));
   const create=new NativeFunction(nativeSymbol.address,'pointer',['pointer','pointer','pointer','pointer'],'mscdecl');
   if(s.id===t.id)throw new Error('Cannot wire a pin to itself');
   const existing=wires().wires.find(w=>(w.source.id===s.id&&w.target.id===t.id)||(w.source.id===t.id&&w.target.id===s.id));
-  if(existing)return {...existing,alreadyConnected:true};
+  if(existing) {
+    if(args.points)setWirePoints(ptr(existing.id),args.points);
+    else if(existing.points[0].x!==s.x||existing.points[0].y!==s.y||existing.points.at(-1).x!==t.x||existing.points.at(-1).y!==t.y)
+      setWirePoints(ptr(existing.id),[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y));
+    return {...wires().wires.find(w=>w.id===existing.id),alreadyConnected:true};
+  }
   let points=ptr(0);
   if(args.points && args.points.length) {
     const values=Memory.alloc(args.points.length*8);
@@ -212,6 +220,12 @@ function wire(args) {
   const w=create(tree,ptr(s.id),ptr(t.id),points);
   if(w.isNull())throw new Error('Native wire factory rejected the connection');
   ensureWirePen(w);
+  if(args.points)setWirePoints(w,args.points);
+  const routed=wires().wires.find(item=>item.id===w.toString());
+  if(routed.points[0].x!==s.x||routed.points[0].y!==s.y||routed.points.at(-1).x!==t.x||routed.points.at(-1).y!==t.y) {
+    const points=[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);
+    setWirePoints(w,points);
+  }
   return {...wires().wires.find(item=>item.id===w.toString()),alreadyConnected:false};
 }
 function wires() {
@@ -229,9 +243,9 @@ function wires() {
     for(let n=0;!v.isNull()&&n<count.readS32();n++)points.push({x:v.add(n*8).readS32(),y:v.add(n*8+4).readS32()});
     if(!v.isNull())freeNativeArray(v);
     function center(connector){const x=Memory.alloc(4),y=Memory.alloc(4);native('Od101dll.dll','?GetCenter@CODConnector@@UAEXAAH0@Z','void',['pointer','pointer','pointer'])(connector,x,y);return {x:x.readS32(),y:y.readS32()};}
-    result.push({id:object.toString(),source:{id:source.toString(),...pins.get(source.toString()),...center(source)},target:{id:target.toString(),...pins.get(target.toString()),...center(target)},points,has_pen:!wirePen(object).isNull()});
+    result.push({id:object.toString(),coordinate_system:'sheet_units',source:{id:source.toString(),...pins.get(source.toString()),...center(source)},target:{id:target.toString(),...pins.get(target.toString()),...center(target)},points,has_pen:!wirePen(object).isNull()});
   }
-  return {path:projectPath(d.proj),wires:result};
+  return {path:projectPath(d.proj),coordinate_system:'sheet_units',wires:result};
 }
 function freeNativeArray(value) {
   // GetVertices allocates a CPoint[] copy; MFC export 266 is the imported delete[] used by this build.

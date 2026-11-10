@@ -4,7 +4,7 @@
 
 Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
-- 58 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- 60 MCP tools for components, wires, sheets, subcircuits, models and analysis.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
 - Batch edits, checkpoints, undo, redo and native save/reopen.
 - DC operating point, transient and AC analysis with RAW and CSV output.
@@ -139,7 +139,7 @@ Read component and wire IDs again after undo, redo or a netlist check that retur
 | Layout | Endpoint checks, component bounds, orthogonal obstacle routing |
 | Export | Native `.ms14`, PNG, BMP, RAW, CSV |
 
-[Experiment guide](docs/experiments.md) · [Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)
+[Schematic guide](docs/schematic.md) · [Experiment guide](docs/experiments.md) · [Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)
 
 ## Configuration
 

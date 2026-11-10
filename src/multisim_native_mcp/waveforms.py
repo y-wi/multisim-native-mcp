@@ -29,10 +29,14 @@ def parse_raw(path: Path) -> dict:
             fields=line.split(None,3)
             if len(fields)<3 or int(fields[0])!=len(variables):raise ValueError('Malformed native vector metadata')
             variables.append({'index':int(fields[0]),'native_name':fields[1],'kind':fields[2],
-                              'name':fields[3].strip() if len(fields)>3 else fields[1]})
+                              'name':fields[3].strip() if len(fields)>3 else fields[1],
+                              'unit':{'voltage':'V','current':'A','time':'s','frequency':'Hz'}.get(fields[2])})
         if len(variables)!=count:raise ValueError('Native variable count mismatch')
         complex_plot='complex' in headers.get('Flags','').split()
         digital=headers.get('DigitalFlags')=='Yes'
+        if digital:
+            for variable in variables:
+                if variable['kind']!='time':variable['unit']=None
         for n in range(points):
             if digital:
                 line=next((line.strip() for line in stream if line.strip()),None)
@@ -56,7 +60,7 @@ def parse_raw(path: Path) -> dict:
                 row.append(value)
             rows.append(row)
         plots.append({'title':headers.get('Title'),'plot':headers.get('Plotname'),'points':points,
-                      'variables':variables,'complex':complex_plot,'digital':digital,'rows':rows})
+                      'variables':variables,'complex':complex_plot,'digital':digital,'rows':rows,'unit_system':'SI'})
     if not plots or plots[0]['digital']:raise ValueError('No analog result plot')
     return {**plots[0],'additional_plots':plots[1:]}
 
@@ -78,7 +82,7 @@ def summarize(data):
 def export_csv(data,path):
     with Path(path).open('w',newline='',encoding='utf-8-sig') as stream:
         writer=csv.writer(stream)
-        writer.writerow([part for v in data['variables'] for part in
+        writer.writerow([part+(' ['+v['unit']+']' if v.get('unit') else '') for v in data['variables'] for part in
                          ([v['name']+'.real',v['name']+'.imag'] if data['complex'] else [v['name']])])
         for row in data['rows']:
             writer.writerow([part for value in row for part in (value if isinstance(value,list) else [value])])

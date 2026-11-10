@@ -18,9 +18,11 @@ from PIL import Image
 from .bridge import NativeHost, ROOT, INSTALL, sha256
 from .paths import DATA_DIR
 
-MUTATIONS = {'wire','move','place','copy','remove','transform','route','setParameter','setModelText',
+MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
              'rename','addText','labelWire','splitWire','connectEndpoint','reconnect',
              'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize'}
+TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect','replace','splitWire',
+                    'createSheet','createSubcircuit','createPort','rename'}
 
 
 class ExistingProcess:
@@ -83,7 +85,7 @@ class EditorService(NativeHost):
     def edit(self, operation, args=None):
         return self.batch([{'operation':operation,'arguments':args or {}}])['results'][0]
 
-    def batch(self, operations):
+    def batch(self, operations, include_state=False):
         if not 1<=len(operations)<=100: raise ValueError('Provide 1 to 100 edit operations')
         for op in operations:
             if op.get('operation') not in MUTATIONS or not isinstance(op.get('arguments',{}),dict):
@@ -101,7 +103,8 @@ class EditorService(NativeHost):
                         args['ref']=next(c['ref'] for c in self.call('components')['components'] if args['ref'] in (c['ref'],c['local_ref'],c['id']))
                         self.restore(self.checkpoint())
                     else:args=op.get('arguments',{})
-                    results.append(self.call(op['operation'],args));self.topology_dirty=True
+                    results.append(self.call(op['operation'],args))
+                    self.topology_dirty=self.topology_dirty or op['operation'] in TOPOLOGY_MUTATIONS
                 self.call('markModified')
                 if any(op['operation']=='createSubcircuit' for op in operations):
                     self.restore(self.checkpoint())
@@ -117,11 +120,16 @@ class EditorService(NativeHost):
                     raise RuntimeError(f'Edit failed ({error}); recovery failed ({recovery}); checkpoint: {before["path"]}') from error
                 raise RuntimeError(f'Edit failed and was rolled back: {error}') from error
             self.undo_stack.append(before); self.redo_stack.clear()
-            self.topology_dirty=True
-            return {'results':results,'undo_depth':len(self.undo_stack),'rollback_checkpoint':before['path']}
+            return {'results':results,'undo_depth':len(self.undo_stack),'rollback_checkpoint':before['path'],
+                    **({'state':self.call('circuitState',{'include_parameters':True})} if include_state else {})}
 
     @staticmethod
     def validate(op,args):
+        if op=='place' and 'parameters' in args:
+            if not isinstance(args['parameters'],list) or len(args['parameters'])>256:raise ValueError('Provide at most 256 component parameters')
+            for parameter in args['parameters']:
+                if not isinstance(parameter,dict) or (('value' in parameter)==('expression' in parameter)):raise ValueError('Each parameter needs index and exactly one value or expression')
+                EditorService.validate('setParameter',parameter)
         if op=='sheetSize' and any(not isinstance(args.get(k),int) or not 96<=args[k]<=8192 for k in ('width','height')):
             raise ValueError('Sheet width and height must be 96 to 8192 native pixels')
         for key in ('x','y','dx','dy'):
@@ -157,7 +165,8 @@ class EditorService(NativeHost):
             if self.topology_dirty:
                 self.restore(self.checkpoint());refreshed=True
             result=self.call('netlist')
-            return {**result,'handles_invalidated':refreshed}
+            return {**result,'handles_invalidated':refreshed,
+                    **({'state':self.call('circuitState',{'include_parameters':True})} if refreshed else {})}
 
     @staticmethod
     def output_path(value,suffixes,overwrite=False):
@@ -167,16 +176,38 @@ class EditorService(NativeHost):
         if path.exists() and not overwrite: raise FileExistsError('Output already exists')
         return path.resolve()
 
-    def export_image(self, output_path, overwrite=False):
+    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18):
+        if not isinstance(dpi,int) or not 36<=dpi<=600 or not math.isfinite(scale) or not .1<=scale<=8:
+            raise ValueError('Require 36 to 600 DPI and scale 0.1 to 8')
+        factor=dpi/96*scale
+        if not .1<=factor<=10:raise ValueError('Combined DPI/scale must be 0.1 to 10 times native size')
+        if not isinstance(padding,int) or not 0<=padding<=1000:raise ValueError('Padding must be 0 to 1000 sheet units')
+        if region is not None and fit_content:raise ValueError('Choose region or fit_content')
         with self.lock:
             path=self.output_path(output_path,{'.png','.bmp'},overwrite)
+            self.call('synchronizeGraphics')
+            state=self.call('circuitState');page=state['page'];content=state['content_bounds']
+            off_page=[c['ref'] for c in state['components'] if c['bounds']['left']<0 or c['bounds']['top']<0 or c['bounds']['right']>page['width'] or c['bounds']['bottom']>page['height']]
+            if fit_content:
+                if not content:raise ValueError('No circuit content to fit')
+                region={k:v+(-padding if k in ('left','top') else padding) for k,v in content.items()}
+            if region is not None:
+                if set(region)!={'left','top','right','bottom'} or any(not isinstance(v,int) or abs(v)>100000 for v in region.values()):raise ValueError('Region must contain integer left/top/right/bottom sheet coordinates')
+                width=region['right']-region['left'];height=region['bottom']-region['top']
+                if width<=0 or height<=0:raise ValueError('Export region must have positive size')
+            else:
+                width,height=page['width'],page['height']
+                if state['components'] and all(c['bounds']['right']<0 or c['bounds']['bottom']<0 or c['bounds']['left']>width or c['bounds']['top']>height for c in state['components']):
+                    raise ValueError('Circuit is outside the page; use fit_content=true, an explicit region, or resize the sheet')
+            if math.ceil(width*factor)*math.ceil(height*factor)>32000000:raise ValueError('Export exceeds 32 million pixels')
             intermediate=self.folder()/('native-image-'+uuid.uuid4().hex+'.bmp')
-            self.call('exportImage',{'path':str(intermediate)})
+            self.call('exportImage',{'path':str(intermediate),'render_scale':factor,**({'region':region} if region else {})})
             with Image.open(intermediate) as image:
-                image.save(path,format='PNG' if path.suffix.lower()=='.png' else 'BMP')
+                image.save(path,format='PNG' if path.suffix.lower()=='.png' else 'BMP',dpi=(dpi,dpi))
                 size=image.size
             return {'path':str(path),'width':size[0],'height':size[1],'bytes':path.stat().st_size,
-                    'source':'native schematic image exporter'}
+                    'dpi':dpi,'scale':scale,'region':region or page['bounds'],'off_page_components':off_page,
+                    'source':'native schematic image renderer'}
 
     def run_analysis(self, analysis='op', step=1e-5, stop=0.01, use_initial_conditions=False,
                      ac_sweep='dec',ac_points=20,ac_start=1.,ac_stop=100000.):
@@ -218,7 +249,7 @@ class EditorService(NativeHost):
                 raise RuntimeError(str(error)+'; diagnostics: '+str(diagnostic)) from error
             record.update(status='complete',points=data['points'],raw_path=str(raw),csv_path=str(csv_path))
             diagnostic.write_text(json.dumps(record,indent=2),encoding='utf-8')
-            return {'analysis':analysis,'plot':data['plot'],'points':data['points'],'vectors':summary,
+            return {'analysis':analysis,'plot':data['plot'],'points':data['points'],'vectors':summary,'unit_system':'SI',
                     'preview':data['rows'][:10],'raw_path':str(raw),'csv_path':str(csv_path),
                     'netlist_path':str(stem.with_suffix('.cir')),'native_result':result,'diagnostic_path':str(diagnostic),
                     'handles_invalidated':netlist['handles_invalidated']}

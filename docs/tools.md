@@ -6,6 +6,8 @@
 | `native_diagnostics` | — |
 | `native_open_copy` | source_path |
 | `native_list_components` | — |
+| `native_get_circuit_state` | include_parameters |
+| `native_move_component_label` | component_ref, x, y |
 | `native_list_wires` | component_ref |
 | `native_connect_pins` | source_ref, source_pin, target_ref, target_pin |
 | `native_move_component` | component_ref, dx, dy |
@@ -13,8 +15,8 @@
 | `native_close_copy` | — |
 | `native_attach` | pid, project_index |
 | `native_create_circuit` | title |
-| `native_search_library` | query, limit |
-| `native_place_component` | name, x, y, reference, family, group, manufacturer |
+| `native_search_library` | query, limit, family, group |
+| `native_place_component` | name, x, y, reference, family, group, manufacturer, parameters |
 | `native_copy_component` | component_ref, new_ref, x, y |
 | `native_delete_object` | object_id, component_ref |
 | `native_get_parameters` | component_ref |
@@ -36,7 +38,7 @@
 | `native_create_subcircuit` | title, reference, x, y |
 | `native_create_hierarchical_port` | name, x, y |
 | `native_list_projects` | — |
-| `native_edit_batch` | operations |
+| `native_edit_batch` | operations, include_state |
 | `native_undo` | — |
 | `native_redo` | — |
 | `native_check_netlist` | — |
@@ -45,7 +47,7 @@
 | `native_analysis_status` | — |
 | `native_control_analysis` | action |
 | `native_read_waveform` | raw_path, offset, limit, plot_index |
-| `native_export_image` | output_path, overwrite |
+| `native_export_image` | output_path, overwrite, dpi, scale, region, fit_content, padding |
 | `native_run_ac_sweep` | sweep, points, start_hz, stop_hz |
 | `native_measure_waveform` | raw_path, measurements |
 | `native_verify_waveform` | raw_path, measurements, criteria |

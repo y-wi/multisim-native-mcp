@@ -47,8 +47,8 @@ function instanceString(dll,prefix,object,args=[],types=[]) {
   const fn=method(dll,prefix,'pointer',['pointer','pointer',...types]);
   return readCStringResult((out,...a)=>fn(object,out,...a),args);
 }
-function parameterInfo(args) {
-  const c=component(args.ref),ci=ciObject(ptr(c.id));
+function parameterInfo(args,source=null) {
+  const c=source||component(args.ref),ci=ciObject(ptr(c.id));
   const attr=method('CIRCEXP.dll','?GetAttribute@CiElement@@','pointer',['pointer','uint'])(ci,2);
   const parameters=[];
   if(!attr.isNull() && /CiaParamList/.test(rtti(attr).name)) {
@@ -61,6 +61,8 @@ function parameterInfo(args) {
   if(!coll.isNull() && /CiaCollString/.test(rtti(coll).name)) {
     for(let n=0;n<5;n++)info.push(instanceString('CIRCEXP.dll','?GetParam@CiaCollString@@',coll,[n],['int']));
   }
+  const descriptor={RESISTOR_VIRTUAL:['resistance','Ohm'],CAPACITOR_VIRTUAL:['capacitance','F'],INDUCTOR_VIRTUAL:['inductance','H'],DC_POWER:['voltage','V']}[info[1]];
+  if(descriptor)for(const p of parameters){if(p.index===1)Object.assign(p,{name:descriptor[0],unit:descriptor[1],role:'value'});else if(p.index===0)p.role='model_option';}
   return {ref:c.ref,ci:ci.toString(),info,parameters};
 }
 function setParameter(args) {
@@ -127,7 +129,7 @@ function copyComponent(args) {
     }
     copyTransform(ptr(source.id),ptr(result.component.id),args.x,args.y);
     const params=parameterInfo({ref:source.id});
-    for(const p of params.parameters)if(p.value!==null)setParameter({ref:result.component.id,index:p.index,value:p.value});
+    for(const p of params.parameters)if(p.expression!==null)setParameter({ref:result.component.id,index:p.index,expression:p.expression});else if(p.value!==null)setParameter({ref:result.component.id,index:p.index,value:p.value});
     return {component:component(result.component.id)};
   } finally {method('SCH_CAP.dll','??1CComponentInfoRetrieve@@','void',['pointer'])(retriever);}
 }
@@ -194,8 +196,21 @@ function readSheets() {
   return d.candidates.filter(s=>/CSCH_CAPSubSheet/.test(s.name)).map((s,index)=>{
     const title=method('DrwEngine.dll','?GetTitle@CDrwSubSheet@@','pointer',['pointer'])(s.pointer).readPointer().readUtf16String();
     const page=method('DrwEngine.dll','?GetPageName@CDrwSubSheet@@','pointer',['pointer'])(s.pointer).readPointer().readUtf16String();
-    return {index,id:s.pointer.toString(),title,page,selected:s.pointer.equals(d.sheet)};
+    const doc=method('SCH_CAP.dll','?GetDocument@CSCH_CAPSubSheet@@','pointer',['pointer'])(s.pointer);
+    const graph=doc.isNull()?ptr(0):method('SCH_CAP.dll','?GetDiagram@CSCH_CAPDoc@@','pointer',['pointer'])(doc);
+    return {index,id:s.pointer.toString(),title,page,selected:s.pointer.equals(d.sheet),...(graph.isNull()?{width:null,height:null,bounds:null}:pageGeometry(graph))};
   });
+}
+function pageGeometry(graph=diagram().graph) {
+  const values=Array.from({length:6},()=>Memory.alloc(4));
+  method('Od101dll.dll','?GetPageInfo@CODDiagram@@','void',['pointer',...Array(6).fill('pointer')])(graph,...values);
+  const prefs=new NativeFunction(graph.readPointer().add(0x5c).readPointer(),'pointer',['pointer'],'thiscall')(graph);
+  if(prefs.isNull())throw new Error('Sheet preferences are unavailable');
+  const read=key=>{const name=pathString(key),out=Memory.alloc(8);out.writeDouble(0);
+    if(!method('PREFS.dll','?GetPrefsAsDouble@CPreferences@@','uint8',['pointer','pointer','pointer'])(prefs,name.readPointer(),out))throw new Error('Missing sheet preference: '+key);return out.readDouble();};
+  const width=Math.round(read('Sheet Width')),height=Math.round(read('Sheet Height'));
+  return {width,height,units:'sheet_units',units_per_inch:96,origin:{x:0,y:0},bounds:{left:0,top:0,right:width,bottom:height},
+    paper_width:Math.round(values[1].readFloat()*96),paper_height:Math.round(values[0].readFloat()*96)};
 }
 function selectSheet(args) {
   const sheets=readSheets(),sheet=sheets.find(s=>args.id?s.id===args.id:s.index===args.index);
@@ -281,14 +296,18 @@ function masterDb() {
 }
 function librarySearch(args) {
   const db=masterDb(),limit=Math.min(100,Math.max(1,args.limit||20)),term=(args.query||'').replace(/'/g,"''");
-  const sql=pathString("SELECT TOP "+limit+" SYS_COMPONENT.Component_Name, SYS_COMPONENT.Component_ID, SYS_COMPONENT.Family_ID FROM SYS_COMPONENT"+(term?" WHERE SYS_COMPONENT.Component_Name LIKE '*"+term+"*'":"")+" ORDER BY SYS_COMPONENT.Component_Name");
+  const filters=[];
+  if(term)filters.push("c.Component_Name LIKE '*"+term+"*'");
+  if(args.family)filters.push("f.Family_Name='"+args.family.replace(/'/g,"''")+"'");
+  if(args.group)filters.push("g.Family_Group='"+args.group.replace(/'/g,"''")+"'");
+  const sql=pathString("SELECT TOP "+limit+" c.Component_Name, c.Component_ID, c.Family_ID, f.Family_Name, g.Family_Group AS Group_Name FROM (SYS_COMPONENT AS c LEFT JOIN SYS_CONFIGURATION AS f ON c.Family_ID=f.Family_ID) LEFT JOIN SYS_CONFIGURATION_GROUPS AS g ON f.Family_Group_ID=g.Family_Group_ID"+(filters.length?' WHERE '+filters.join(' AND '):'')+" ORDER BY c.Component_Name");
   method('Database.dll','?OpenSQLDirectSet@CDBComponent@@','void',['pointer','pointer'])(db,sql.readPointer());
   const results=[];
   try {
     if(!method('Database.dll','?IsEOFRecord_SQLDirectSet@CDBComponent@@','uint8',['pointer'])(db))method('Database.dll','?MoveFirstRecord_SQLDirectSet@CDBComponent@@','void',['pointer'])(db);
     while(!method('Database.dll','?IsEOFRecord_SQLDirectSet@CDBComponent@@','uint8',['pointer'])(db)&&results.length<limit) {
       const item={};
-      for(const column of ['Component_Name']) {
+      for(const column of ['Component_Name','Family_Name','Group_Name']) {
         const key=pathString(column),out=pathString('');
         const ok=method('Database.dll','?GetFieldValue_SQLDirectSet@CDBComponent@@QAE_NABV?$CStringT@_WV?$StrTraitMFC_DLL@_WV?$ChTraitsCRT@_W@ATL@@@@@ATL@@AAV23@@Z','uint8',['pointer','pointer','pointer'])(db,key,out);
         if(ok)item[column]=out.readPointer().readUtf16String();
@@ -331,7 +350,14 @@ function generateRecord(record,args) {
   if(c.ref!==ref)renameComponent({ref:c.id,new_ref:ref});
   const origin=matrix(object);
   method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(d.graph,object,Math.round(args.x-origin[4]),Math.round(args.y-origin[5]));
-  return {component:component(object.toString())};
+  for(const parameter of args.parameters||[])setParameter({ref:c.id,...parameter});
+  c=component(object.toString());
+  const metadata=parameterInfo({ref:c.id});
+  const page=pageGeometry(),offPage=args.x<0||args.y<0||args.x>page.width||args.y>page.height;
+  const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page; resize the sheet or export with fit_content.'}]:[];
+  for(const p of metadata.parameters)if(p.role==='value'&&p.value===null&&!p.expression?.trim())warnings.push({code:'unset_value',reference:c.ref,index:p.index,name:p.name,message:'Set the primary component value before analysis.'});
+  return {component:{...c,library:{family:metadata.info[0],name:metadata.info[1],symbol_family:metadata.info[2],model:metadata.info[3]},default_reference_prefix:stem},parameters:metadata.parameters,page,
+    warnings};
 }
 function allocateObject(className,constructor,args,types) {
   const type=method('Od101dll.dll','?GetThisClass@'+className+'@@','pointer',[],'stdcall')();
@@ -466,7 +492,13 @@ function connectNative(source,target,points) {
   if(points&&points.length){const values=Memory.alloc(points.length*8);points.forEach((p,n)=>{values.add(n*8).writeS32(p.x);values.add(n*8+4).writeS32(p.y);});vector=Memory.alloc(12);vector.writePointer(values);vector.add(4).writePointer(values.add(points.length*8));vector.add(8).writePointer(values.add(points.length*8));}
   const object=method('SCH_CAP.dll','?CreateWireBase@CBackAnnotationTarget@@','pointer',['pointer','pointer','pointer','pointer'],'mscdecl')(treeInstance(),source,target,vector);
   if(object.isNull())throw new Error('Native wire creation failed');
-  ensureWirePen(object);return object;
+  ensureWirePen(object);
+  const link=wires().wires.find(w=>w.id===object.toString());
+  if(!points&&link.points.length>1&&(link.points[0].x!==link.source.x||link.points[0].y!==link.source.y||link.points.at(-1).x!==link.target.x||link.points.at(-1).y!==link.target.y)) {
+    const a=link.source,b=link.target;
+    setWirePoints(object,[{x:a.x,y:a.y},{x:a.x,y:b.y},{x:b.x,y:b.y}].filter((p,i,all)=>!i||p.x!==all[i-1].x||p.y!==all[i-1].y));
+  }
+  return object;
 }
 function splitWire(args) {
   const w=wires().wires.find(w=>w.id===args.id);if(!w)throw new Error('Wire does not exist');
@@ -507,13 +539,36 @@ function reconnectWire(args) {
 }
 function exportImage(args) {
   synchronizeGraphics();
-  const path=pathString(args.path);
-  const sheet=diagram().sheet;
-  // CDrwSubSheet's exported implementation is a false-returning stub. Slot 350 is
-  // the verified CSCH_CAPSubSheet override in this ABI profile.
-  const ok=new NativeFunction(sheet.readPointer().add(350*4).readPointer(),'uint8',['pointer','pointer'],'thiscall')(sheet,path);
-  native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(path);
-  if(!ok)throw new Error('Native image exporter failed');return {path:args.path};
+  const d=diagram(),before=pageGeometry(),region=args.region||{left:0,top:0,right:before.width,bottom:before.height};
+  const prefs=new NativeFunction(d.graph.readPointer().add(0x5c).readPointer(),'pointer',['pointer'],'thiscall')(d.graph);
+  const setSize=(w,h)=>{for(const [key,value] of Object.entries({'Sheet Width':w,'Sheet Height':h,'Sheet Width In Inch':w/96,'Sheet Height In Inch':h/96})) {
+    const name=pathString(key),text=pathString(String(value));method('PREFS.dll','?SetPrefsAsString@CIITCircuitPrefs@@','uint8',['pointer','pointer','pointer'])(prefs,name.readPointer(),text.readPointer());
+  }};
+  const root=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(d.composite);
+  let bitmap=ptr(0),translated=false;
+  try {
+    if(args.region){setSize(region.right-region.left,region.bottom-region.top);method('Od101dll.dll','?Translate@CODGraphic@@','void',['pointer','float','float'])(root,-region.left,-region.top);translated=true;}
+    bitmap=method('SCH_CAP.dll','?WriteCircuitImageToBitmap@CSCH_CAPSubSheet@@','pointer',['pointer','pointer','uint8','double'])(d.sheet,treeInstance(),0,(args.render_scale||1)*100);
+    if(bitmap.isNull())throw new Error('Native bitmap renderer failed');
+    const handle=bitmap.add(4).readPointer(),description=Memory.alloc(24);
+    if(!method('gdi32.dll','GetObjectW','int',['pointer','int','pointer'],'stdcall')(handle,24,description))throw new Error('Native bitmap dimensions unavailable');
+    const width=description.add(4).readS32(),height=description.add(8).readS32(),stride=Math.ceil(width*3/4)*4;
+    if(width<=0||height<=0||width*height>32000000)throw new Error('Native bitmap exceeds 32 million pixels');
+    const size=stride*height,header=Memory.alloc(40),buffer=Memory.alloc(size+54);header.writeByteArray(new Uint8Array(40));
+    header.writeU32(40);header.add(4).writeS32(width);header.add(8).writeS32(height);header.add(12).writeU16(1);header.add(14).writeU16(24);header.add(20).writeU32(size);
+    const dc=method('user32.dll','GetDC','pointer',['pointer'],'stdcall')(ptr(0));
+    let rows;
+    try {rows=method('gdi32.dll','GetDIBits','int',['pointer','pointer','uint','uint','pointer','pointer','uint'],'stdcall')(dc,handle,0,height,buffer.add(54),header,0);}
+    finally {method('user32.dll','ReleaseDC','int',['pointer','pointer'],'stdcall')(ptr(0),dc);}
+    if(rows!==height)throw new Error('Native bitmap readback failed');
+    buffer.writeByteArray(new Uint8Array(54));buffer.writeU16(0x4d42);buffer.add(2).writeU32(size+54);buffer.add(10).writeU32(54);Memory.copy(buffer.add(14),header,40);
+    const file=new File(args.path,'wb');file.write(buffer.readByteArray(size+54));file.close();
+    return {path:args.path,width,height,render_scale:args.render_scale||1,region};
+  } finally {
+    if(!bitmap.isNull())new NativeFunction(bitmap.readPointer().readPointer(),'pointer',['pointer','uint'],'thiscall')(bitmap,1);
+    if(translated)method('Od101dll.dll','?Translate@CODGraphic@@','void',['pointer','float','float'])(root,region.left,region.top);
+    if(args.region)setSize(before.width,before.height);
+  }
 }
 function synchronizeGraphics() {
   const repaired=[];
@@ -606,8 +661,52 @@ function componentBounds() {
     return {...c,bounds:{left:Math.min(x1,x2),top:Math.min(y1,y2),right:Math.max(x1,x2),bottom:Math.max(y1,y2)}};
   })};
 }
+function contentBounds() {
+  const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A'),rects=[];
+  for(const object of listChildren(diagram().composite)) {
+    if(/CIITLinkComp/.test(rtti(object).name))continue;
+    const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(object),rect=Memory.alloc(16);
+    if(graphic.isNull())continue;
+    method('Od101dll.dll','?GetBox@CODGraphic@@QAEXAAVCRect@@AAVCODInstContext@@@Z','void',['pointer','pointer','pointer'])(graphic,rect,context);
+    const [x1,y1,x2,y2]=[0,4,8,12].map(n=>rect.add(n).readS32());
+    if(x1===x2&&y1===y2)continue;
+    rects.push({left:Math.min(x1,x2),top:Math.min(y1,y2),right:Math.max(x1,x2),bottom:Math.max(y1,y2)});
+  }
+  for(const w of wires().wires)if(w.points.length)rects.push({left:Math.min(...w.points.map(p=>p.x)),top:Math.min(...w.points.map(p=>p.y)),right:Math.max(...w.points.map(p=>p.x)),bottom:Math.max(...w.points.map(p=>p.y))});
+  return rects.length?{left:Math.min(...rects.map(r=>r.left)),top:Math.min(...rects.map(r=>r.top)),right:Math.max(...rects.map(r=>r.right)),bottom:Math.max(...rects.map(r=>r.bottom))}:null;
+}
+function circuitState(args={}) {
+  const state=componentBounds(),page=pageGeometry();
+  for(const c of state.components)c.labels=componentLabels({ref:c.id},c).labels;
+  if(args.include_parameters)for(const c of state.components){const p=parameterInfo({ref:c.id},c);c.parameters=p.parameters;c.library={family:p.info[0],name:p.info[1],symbol_family:p.info[2],model:p.info[3]};}
+  return {sheets:readSheets(),page,components:state.components,wires:wires().wires,content_bounds:contentBounds()};
+}
+function componentLabels(args,source=null) {
+  const c=source||component(args.ref),context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  const labels=[];
+  for(const child of listChildren(ptr(c.id))) {
+    const type=rtti(child).name;
+    if(!/CIITSymTextCompName/.test(type))continue;
+    const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(child),r=Memory.alloc(16);
+    method('Od101dll.dll','?GetBox@CODGraphic@@QAEXAAVCRect@@AAVCODInstContext@@@Z','void',['pointer','pointer','pointer'])(graphic,r,context);
+    const corners=[[r.readS32(),r.add(4).readS32()],[r.add(8).readS32(),r.add(12).readS32()]].map(([x,y])=>({x,y}));
+    const bounds={left:Math.min(...corners.map(p=>p.x)),top:Math.min(...corners.map(p=>p.y)),right:Math.max(...corners.map(p=>p.x)),bottom:Math.max(...corners.map(p=>p.y))};
+    labels.push({id:child.toString(),kind:'reference',bounds,center:{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}});
+  }
+  return {reference:c.ref,labels};
+}
+function moveComponentLabel(args) {
+  const c=component(args.ref),labels=componentLabels(args).labels;
+  if(labels.length!==1)throw new Error('Expected one native reference label');
+  const label=labels[0],dx=args.x-label.center.x,dy=args.y-label.center.y,[a,b,d,e]=c.transform,det=a*e-b*d;
+  const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(ptr(label.id));
+  method('Od101dll.dll','?Translate@CODGraphic@@','void',['pointer','float','float'])(graphic,(e*dx-d*dy)/det,(-b*dx+a*dy)/det);
+  const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  method('Od101dll.dll','?Update@CODComponent@@UAEXAAVCODInstContext@@_N@Z','void',['pointer','pointer','uint8'])(ptr(label.id),context,0);
+  return componentLabels(args);
+}
 const editorHandlers={
-  componentBounds,synchronizeGraphics,
+  componentBounds,synchronizeGraphics,circuitState,componentLabels,moveLabel:moveComponentLabel,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
   parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,sheets:readSheets,
   electricalPorts:args=>{

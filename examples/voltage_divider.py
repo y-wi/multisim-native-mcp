@@ -11,27 +11,34 @@ async def create_divider(output: Path):
     async with stdio_client(parameters) as (reader,writer):
         async with ClientSession(reader,writer,read_timeout_seconds=90) as session:
             await session.initialize()
+            calls=0
             async def call(tool_name,**args):
+                nonlocal calls
+                calls+=1
                 result=await session.call_tool(tool_name,args)
                 if result.is_error:raise RuntimeError(result.content[0].text)
                 return result.structured_content or json.loads(result.content[0].text)
             try:
                 await call('native_create_circuit',title='Voltage divider')
-                for name,ref,x,y in [('DC_POWER','V1',108,108),('RESISTOR_VIRTUAL','R1',306,108),('RESISTOR_VIRTUAL','R2',504,108),('GROUND','0',108,306)]:
-                    await call('native_place_component',name=name,reference=ref,x=x,y=y)
-                for ref,value in [('V1',12),('R1',1000),('R2',1000)]:
-                    await call('native_set_parameter',component_ref=ref,index=1,value=value)
+                operations=[]
+                for name,ref,x,y,value in [('DC_POWER','V1',108,108,12),('RESISTOR_VIRTUAL','R1',306,108,1000),('RESISTOR_VIRTUAL','R2',504,108,1000),('GROUND','0',108,306,None)]:
+                    args={'name':name,'ref':ref,'x':x,'y':y}
+                    if value is not None:args['parameters']=[{'index':1,'value':value}]
+                    operations.append({'operation':'place','arguments':args})
                 for a,ap,b,bp in [('V1','1','R1','1'),('R1','2','R2','1'),('R2','2','V1','2'),('V1','2','0','1')]:
-                    await call('native_connect_pins',source_ref=a,source_pin=ap,target_ref=b,target_pin=bp)
+                    operations.append({'operation':'wire','arguments':{'source':{'ref':a,'pin':ap},'target':{'ref':b,'pin':bp}}})
+                await call('native_edit_batch',operations=operations)
                 netlist=await call('native_check_netlist')
                 if netlist['failed']:raise RuntimeError(netlist['messages'])
                 result=await call('native_run_analysis',analysis='op')
+                current=next(v for v in result['vectors'] if v['name']=='I(V1)')
+                if current['unit']!='A' or abs(current['last']+.006)>1e-8:raise RuntimeError('Divider source current must be -0.006 A')
                 await call('native_save_copy',output_path=str(output/'voltage-divider.ms14'),overwrite=True)
-                await call('native_export_image',output_path=str(output/'voltage-divider.png'),overwrite=True)
+                await call('native_export_image',output_path=str(output/'voltage-divider.png'),overwrite=True,dpi=192,fit_content=True,padding=36)
                 (output/'analysis.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
-                return result
             finally:
                 await call('native_close_copy')
+            return {**result,'tool_calls':calls}
 
 
 if __name__=='__main__':

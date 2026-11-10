@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2
+
+- Expose sheet and printing-paper dimensions, content bounds and complete circuit state.
+- Keep automatic wire routes attached to actual pin coordinates outside page boundaries.
+- Add library family/group filters, model metadata and primary-parameter descriptions.
+- Support inline placement parameters and batch state results.
+- Preserve object handles after geometry and parameter changes; return refreshed state after topology updates.
+- Render native high-resolution images with DPI, scale, region and content fitting.
+- Add native reference-label positioning.
+- Report waveform and CSV units explicitly in SI.
+
 ## 0.3.1
 
 - Add DeepSeek Harness profile installation and configuration export.

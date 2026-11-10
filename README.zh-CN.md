@@ -4,7 +4,7 @@
 
 通过 Model Context Protocol 编辑 NI Multisim 原生电路，执行仿真、测量和实验验收。
 
-- 58 个 MCP 工具，涵盖元件、连线、图纸、子电路、模型与分析。
+- 60 个 MCP 工具，涵盖元件、连线、图纸、子电路、模型与分析。
 - 生成可编辑的 `.ms14` 工程，支持按引脚名称连接和导线分支。
 - 支持批量编辑、检查点、撤销、重做和原生保存重开。
 - 直流工作点、瞬态与 AC 扫频分析，导出 RAW 与 CSV 数据。
@@ -138,7 +138,7 @@ multisim-native-mcp configure
 | 布线检查 | 原生端点、图形边界、正交避障布线 |
 | 导出 | 原生 `.ms14`、PNG、BMP、RAW、CSV |
 
-[实验指南](docs/experiments.md) · [工具参考](docs/tools.md) · [Python 示例](examples/voltage_divider.py)
+[原理图指南](docs/schematic.md) · [实验指南](docs/experiments.md) · [工具参考](docs/tools.md) · [Python 示例](examples/voltage_divider.py)
 
 ## 配置
 

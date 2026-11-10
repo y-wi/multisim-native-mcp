@@ -30,7 +30,10 @@ server = MCPServer('multisim-native', version=__version__,
                    instructions='Edit native Multisim objects in isolated copies or explicitly attached existing windows. '
                    'Read exact pin names before wiring; save results before closing. '
                    'Undo, redo and netlist refresh can invalidate memory IDs; reread objects afterward. '
-                   'Coordinates are native sheet units and may snap to grid. '
+                   'Read sheet bounds from the initial state or native_get_circuit_state before placing components. '
+                   'Coordinates use top-left sheet units, 96 per inch, and may snap to grid. '
+                   'Use native_edit_batch for construction and consume its returned state. '
+                   'Waveform values use SI units; verify source current as well as output voltage. '
                    'Native Multisim schematic editing and analog analysis.')
 
 
@@ -53,7 +56,7 @@ def native_diagnostics() -> dict:
 @checked
 def native_open_copy(source_path: str) -> dict:
     """Start an isolated hidden Multisim process on a copy of an existing absolute .ms14 path."""
-    return host.open_copy(source_path)
+    return {**host.open_copy(source_path),'state':host.call('circuitState',{'include_parameters':True})}
 
 
 @server.tool()
@@ -61,6 +64,20 @@ def native_open_copy(source_path: str) -> dict:
 def native_list_components() -> dict:
     """Read native component references, transforms, named pin IDs, coordinates and connection counts."""
     return host.call('components')
+
+
+@server.tool()
+@checked
+def native_get_circuit_state(include_parameters: bool = True) -> dict:
+    """Read page bounds in sheet units, content bounds, components, named pins, wires and optional parameter metadata in one call. Origin is top-left; 96 sheet units per inch. Paper dimensions are separate from sheet dimensions."""
+    return host.call('circuitState',{'include_parameters':include_parameters})
+
+
+@server.tool()
+@checked
+def native_move_component_label(component_ref: str,x: int,y: int) -> dict:
+    """Move the native reference label center to absolute sheet coordinates without moving its symbol, pins or wires. The result includes actual label bounds."""
+    return host.edit('moveLabel',{'ref':component_ref,'x':x,'y':y})
 
 
 @server.tool()
@@ -115,22 +132,23 @@ def native_attach(pid: int, project_index: int = 0) -> dict:
 @checked
 def native_create_circuit(title: str = 'Circuit') -> dict:
     """Start a blank native 14.3 schematic in an owned host. Other Multisim windows must be closed."""
-    return host.create(title)
+    return {**host.create(title),'state':host.call('circuitState')}
 
 
 @server.tool()
 @checked
-def native_search_library(query: str, limit: int = 20) -> dict:
-    """Search the real installed master component library; returns exact native names and library IDs."""
+def native_search_library(query: str, limit: int = 20, family: str = '', group: str = '') -> dict:
+    """Search native component names and IDs with actual family/group categories. Optional family/group filters use exact names; library names alone do not identify symbol or model type."""
     if not 1 <= limit <= 100 or len(query)>128: raise ValueError('Invalid search size')
-    return host.call('librarySearch', {'query':query,'limit':limit})
+    return host.call('librarySearch', {'query':query,'limit':limit,'family':family,'group':group})
 
 
 @server.tool()
 @checked
-def native_place_component(name: str, x: int, y: int, reference: str | None = None, family: str = '', group: str = '', manufacturer: str = '') -> dict:
+def native_place_component(name: str, x: int, y: int, reference: str | None = None, family: str = '', group: str = '', manufacturer: str = '',parameters: list[dict] | None = None) -> dict:
     """Place a real library component, including its native symbol, named pins, simulation model and parameters. Use an exact search result name."""
     args={'name':name,'x':x,'y':y,'family':family,'group':group,'manufacturer':manufacturer}
+    if parameters is not None:args['parameters']=parameters
     if reference is not None: args['ref']=reference
     return host.edit('place',args)
 
@@ -247,7 +265,7 @@ def native_label_wire(wire_id: str, name: str) -> dict:
 @server.tool()
 @checked
 def native_list_sheets() -> dict:
-    """List native schematic sheets and current selection."""
+    """List sheet dimensions and top-left bounds in sheet units (96 per inch), titles, pages and selection. Printing-paper dimensions are returned separately."""
     return {'sheets':host.call('sheets')}
 
 
@@ -288,9 +306,9 @@ def native_list_projects() -> dict:
 
 @server.tool()
 @checked
-def native_edit_batch(operations: list[dict]) -> dict:
+def native_edit_batch(operations: list[dict], include_state: bool = True) -> dict:
     """Apply 1-100 edits as one undo unit. Each item has operation and arguments. Allowlist: wire, move, place, copy, remove, transform, route, setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet, sheetSize. sheetSize takes width and height in native pixels, 96-8192. Any failure restores a native checkpoint; reread volatile IDs afterward."""
-    return host.batch(operations)
+    return host.batch(operations,include_state)
 
 
 @server.tool()
@@ -310,7 +328,7 @@ def native_redo() -> dict:
 @server.tool()
 @checked
 def native_check_netlist() -> dict:
-    """Generate and check the real native SPICE netlist. Refresh edited connectivity through native save/reopen; object IDs may change."""
+    """Generate the SPICE source used by native analysis. Refresh changed topology only; handles_invalidated then includes the refreshed state. Layout and parameter edits keep handles stable. A resistor value of zero in this source is an actual zero resistance."""
     return host.netlist()
 
 
@@ -473,9 +491,9 @@ def native_auto_route_wire(wire_id: str, clearance: int = 9) -> dict:
 
 @server.tool()
 @checked
-def native_export_image(output_path: str, overwrite: bool = False) -> dict:
-    """Export the selected schematic through Multisim's native image exporter to PNG or BMP, as a PNG or BMP file."""
-    return host.export_image(output_path,overwrite)
+def native_export_image(output_path: str, overwrite: bool = False,dpi: int = 96,scale: float = 1.,region: dict[str,int] | None = None,fit_content: bool = False,padding: int = 18) -> dict:
+    """Render PNG/BMP natively at 36-600 DPI with optional scale. Choose region {left,top,right,bottom} in sheet units or fit_content with padding. Includes off-page content without moving the circuit; at most 32 million pixels."""
+    return host.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding)
 
 
 def main():
