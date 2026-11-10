@@ -16,9 +16,11 @@
 | 项目 | 版本 |
 | --- | --- |
 | 操作系统 | Windows 10 / 11 |
-| NI Multisim | Windows，32 位 |
+| NI Multisim | 14.2 或 14.3，Windows，32 位 |
 | Python | CPython 3.12，32 位；安装脚本自动配置 |
 | 通信方式 | STDIO |
+
+Multisim 14.2 与 14.3 使用同一套私有原生对象模型，两者都受支持：元件与连线编辑、网表生成、直流工作点与瞬态分析、原生 `.ms14` 保存和图像导出在任一版本上均可用。`native-profile.json` 中的 14.3 模块哈希仅作诊断参考，因此 14.2 安装会报告 `compatible: false`，但不影响正常使用。非默认 14.3 目录的安装请在安装时用 `-MultisimPath` 指定（见[安装](#安装)）。
 
 ## 安装
 
@@ -41,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 指定 Multisim 安装目录：
 
 ```powershell
-.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.3'
+.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.2'
 ```
 
 ### 其他 MCP 客户端

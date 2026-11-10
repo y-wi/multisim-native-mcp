@@ -16,9 +16,11 @@ Native circuit editing and analog analysis for NI Multisim through the Model Con
 | Component | Version |
 | --- | --- |
 | Operating system | Windows 10 / 11 |
-| NI Multisim | Windows, 32-bit |
+| NI Multisim | 14.2 or 14.3, Windows, 32-bit |
 | Python | CPython 3.12, 32-bit; installed automatically |
 | Transport | STDIO |
+
+Multisim 14.2 and 14.3 expose the same private native object model, and both are supported: component and wire editing, netlist generation, DC operating point and transient analysis, native `.ms14` save and image export work on either version. `native-profile.json` keeps the 14.3 module hashes as a diagnostic reference, so a 14.2 installation reports `compatible: false` while still running normally. An installation outside the default 14.3 directory is selected with `-MultisimPath` (see [Install](#install)).
 
 ## Install
 
@@ -41,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 For a custom Multisim installation directory:
 
 ```powershell
-.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.3'
+.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.2'
 ```
 
 ### Other MCP clients
