@@ -43,6 +43,11 @@ def test_truncated_waveform(tmp_path):
     with pytest.raises(ValueError,match='sample count'):parse_raw(raw_file(tmp_path,text))
 
 
+def test_unexpected_trailing_content(tmp_path):
+    text='No. Variables: 1\nNo. Points: 1\nVariables:\n0 time time\nValues:\n0 0\nextra sample\n'
+    with pytest.raises(ValueError,match='trailing'):parse_raw(raw_file(tmp_path,text))
+
+
 @pytest.mark.parametrize('operation,args',[
     ('route',{'points':[{'x':0,'y':0}]}),
     ('route',{'points':[{'x':0,'y':0},{'x':float('inf'),'y':0}]}),

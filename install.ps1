@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '0.2.2',
+    [string]$Version = '0.3.0',
     [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'MultisimNativeMCP'),
     [string]$Source,
     [ValidateSet('codex','none')][string]$Client = 'codex',
@@ -29,7 +29,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'uv installation failed.' }
         $uvExecutable = Join-Path $toolsDirectory 'uv.exe'
     }
-    $env:UV_TOOL_DIR = Join-Path $toolsDirectory 'environments'
+    $environmentRoot = Join-Path (Join-Path $toolsDirectory 'environments') ('install-' + [guid]::NewGuid().ToString('N'))
+    $env:UV_TOOL_DIR = $environmentRoot
     $env:UV_TOOL_BIN_DIR = $binDirectory
     if (-not $Source) {
         if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'src\multisim_native_mcp\__init__.py'))) { $Source = $PSScriptRoot }

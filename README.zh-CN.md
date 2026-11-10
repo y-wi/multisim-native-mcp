@@ -2,12 +2,15 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-通过 Model Context Protocol 编辑 NI Multisim 原生电路并执行模拟电路分析。
+通过 Model Context Protocol 编辑 NI Multisim 原生电路，执行仿真、测量和实验验收。
 
-- 44 个 MCP 工具，涵盖元件、连线、图纸、子电路、模型与分析。
+- 58 个 MCP 工具，涵盖元件、连线、图纸、子电路、模型与分析。
 - 生成可编辑的 `.ms14` 工程，支持按引脚名称连接和导线分支。
 - 支持批量编辑、检查点、撤销、重做和原生保存重开。
-- 模拟电路直流工作点、瞬态分析，导出 RAW 与 CSV 数据。
+- 直流工作点、瞬态与 AC 扫频分析，导出 RAW 与 CSV 数据。
+- 时间加权波形测量、指标验收与扫描数码管解码。
+- 参数扫描、候选选优、持久后台实验及中英文报告。
+- 原生端点与布局检查、器件避障正交布线。
 - 原理图导出为 PNG、BMP。
 - Windows 安装脚本自动配置 Python 环境和 Codex。
 
@@ -20,14 +23,12 @@
 | Python | CPython 3.12，32 位；安装脚本自动配置 |
 | 通信方式 | STDIO |
 
-Multisim 14.2 与 14.3 使用同一套私有原生对象模型，两者都受支持：元件与连线编辑、网表生成、直流工作点与瞬态分析、原生 `.ms14` 保存和图像导出在任一版本上均可用。`native-profile.json` 中的 14.3 模块哈希仅作诊断参考，因此 14.2 安装会报告 `compatible: false`，但不影响正常使用。非默认 14.3 目录的安装请在安装时用 `-MultisimPath` 指定（见[安装](#安装)）。
-
 ## 安装
 
 在 PowerShell 中运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.2.2/install.ps1 | iex
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.0/install.ps1 | iex
 ```
 
 重启 Codex，工具列表中会出现 `multisim_native`。
@@ -65,7 +66,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ### 使用 uv 安装
 
 ```powershell
-uv tool install --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.2.2/multisim_native_mcp-0.2.2-py3-none-any.whl
+uv tool install --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.0/multisim_native_mcp-0.3.0-py3-none-any.whl
 multisim-native-mcp doctor
 multisim-native-mcp configure
 ```
@@ -110,10 +111,14 @@ multisim-native-mcp configure
 | 连接 | 引脚连接、节点、分支、端点重接、网络标签 |
 | 层级 | 多图纸、子电路、层级端口 |
 | 历史 | 批量编辑、检查点、撤销、重做 |
-| 模拟分析 | 直流工作点、瞬态分析、波形数据 |
+| 分析 | 直流工作点、瞬态、AC 扫频、混合波形 |
+| 测量与验收 | 均值、RMS、频率、占空比、增益、相位、指标约束和数码管解码 |
+| 实验 | 扫参、选优、持久后台任务、取消和重试 |
+| 报告 | 中英文 HTML、Markdown、CSV、电路图和波形图 |
+| 布线检查 | 原生端点、图形边界、正交避障布线 |
 | 导出 | 原生 `.ms14`、PNG、BMP、RAW、CSV |
 
-[工具参考](docs/tools.md) · [Python 示例](examples/voltage_divider.py)
+[实验指南](docs/experiments.md) · [工具参考](docs/tools.md) · [Python 示例](examples/voltage_divider.py)
 
 ## 配置
 
@@ -124,8 +129,6 @@ multisim-native-mcp configure
 | `CODEX_HOME` | Codex 配置目录 | `%USERPROFILE%\.codex` |
 
 运行 `multisim-native-mcp doctor` 检查 Python 位数、安装资源和 Multisim 模块。`configure` 保留其他 Codex 设置，更新已有配置时生成带时间戳的备份。
-
-模块哈希和参考版本用于诊断。启动、进程附着和安装就绪状态依据运行环境是否存在判断。
 
 ## 开发
 

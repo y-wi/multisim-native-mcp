@@ -227,7 +227,8 @@ function wires() {
     if(count.readS32()>10000)throw new Error('Invalid native vertex count');
     for(let n=0;!v.isNull()&&n<count.readS32();n++)points.push({x:v.add(n*8).readS32(),y:v.add(n*8+4).readS32()});
     if(!v.isNull())freeNativeArray(v);
-    result.push({id:object.toString(),source:{id:source.toString(),...pins.get(source.toString())},target:{id:target.toString(),...pins.get(target.toString())},points,has_pen:!wirePen(object).isNull()});
+    function center(connector){const x=Memory.alloc(4),y=Memory.alloc(4);native('Od101dll.dll','?GetCenter@CODConnector@@UAEXAAH0@Z','void',['pointer','pointer','pointer'])(connector,x,y);return {x:x.readS32(),y:y.readS32()};}
+    result.push({id:object.toString(),source:{id:source.toString(),...pins.get(source.toString()),...center(source)},target:{id:target.toString(),...pins.get(target.toString()),...center(target)},points,has_pen:!wirePen(object).isNull()});
   }
   return {path:projectPath(d.proj),wires:result};
 }

@@ -12,3 +12,4 @@ artifacts/
 *.log
 *.dmp
 *.bak
+.playwright-cli/

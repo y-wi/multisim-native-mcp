@@ -4,17 +4,24 @@ from __future__ import annotations
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from functools import wraps
+from pathlib import Path
 import re
 from .service import EditorService
+from .jobs import ExperimentManager
 from . import __version__
 
 host = EditorService()
+experiments = ExperimentManager(host)
 
 
 def checked(function):
     @wraps(function)
     def execute(*args, **kwargs):
         try:
+            if experiments.active and function.__name__ not in {
+                'native_runtime_status','native_experiment_status','native_list_experiments','native_cancel_experiment',
+                'native_read_waveform','native_measure_waveform','native_verify_waveform','native_decode_seven_segment'}:
+                raise RuntimeError('A native experiment is running; inspect or cancel it first')
             return function(*args, **kwargs)
         except Exception as error:
             raise ToolError(str(error)) from error
@@ -309,16 +316,23 @@ def native_check_netlist() -> dict:
 
 @server.tool()
 @checked
-def native_run_analysis(analysis: str = 'op', step: float = 0.00001, stop: float = 0.01) -> dict:
+def native_run_analysis(analysis: str = 'op', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False) -> dict:
     """Run real Multisim DC operating-point (op) or transient (tran) analysis. Return verified numeric waveforms plus ASCII RAW, CSV and native SPICE source paths. At most 100000 requested transient steps."""
-    return host.run_analysis(analysis,step,stop)
+    return host.run_analysis(analysis,step,stop,use_initial_conditions)
 
 
 @server.tool()
 @checked
-def native_start_analysis(analysis: str = 'tran', step: float = 0.00001, stop: float = 0.01) -> dict:
+def native_run_ac_sweep(sweep: str = 'dec', points: int = 20, start_hz: float = 1., stop_hz: float = 100000.) -> dict:
+    """Run native AC analysis: lin uses total points, dec/oct use points per decade/octave. Return complex RAW and real/imaginary CSV vectors."""
+    return host.run_analysis('ac',ac_sweep=sweep,ac_points=points,ac_start=start_hz,ac_stop=stop_hz)
+
+
+@server.tool()
+@checked
+def native_start_analysis(analysis: str = 'tran', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False) -> dict:
     """Start a native analysis in the background so pause/resume/stop and status tools remain available."""
-    return host.start_analysis(analysis,step,stop)
+    return host.start_analysis(analysis,step,stop,use_initial_conditions)
 
 
 @server.tool()
@@ -337,9 +351,124 @@ def native_control_analysis(action: str) -> dict:
 
 @server.tool()
 @checked
-def native_read_waveform(raw_path: str, offset: int = 0, limit: int = 1000) -> dict:
-    """Read a page of actual numeric samples and native vector names from an exported ASCII SPICE RAW result."""
-    return host.read_waveform(raw_path,offset,limit)
+def native_read_waveform(raw_path: str, offset: int = 0, limit: int = 1000, plot_index: int = 0) -> dict:
+    """Read native ASCII RAW samples and plot metadata. Select plot_index for appended digital-node plots; their event rows contain time, rising and falling flags."""
+    return host.read_waveform(raw_path,offset,limit,plot_index)
+
+
+@server.tool()
+@checked
+def native_measure_waveform(raw_path: str, measurements: list[dict]) -> dict:
+    """Measure native RAW samples. Each request has id, metric, signal; optional start/stop, threshold. Metrics: min, max, mean, rms, peak_to_peak, frequency, duty_cycle; AC gain_db/phase_deg need reference and frequency_hz."""
+    from .waveforms import parse_raw
+    from .measurements import measure
+    return {'raw_path':raw_path,'measurements':measure(parse_raw(Path(raw_path)),measurements)}
+
+
+@server.tool()
+@checked
+def native_verify_waveform(raw_path: str, measurements: list[dict], criteria: list[dict]) -> dict:
+    """Measure RAW data and check criteria by measurement ID, with min/max or target plus absolute_tolerance/relative_tolerance."""
+    from .waveforms import parse_raw
+    from .measurements import measure
+    from .verification import verify
+    values=measure(parse_raw(Path(raw_path)),measurements)
+    return {'raw_path':raw_path,'measurements':values,**verify(values,criteria)}
+
+
+@server.tool()
+@checked
+def native_decode_seven_segment(raw_path: str, digits: list[dict], expected: str | None = None,
+        start: float | None = None, stop: float | None = None, threshold: float = 2.5,
+        active_high: bool = True, select_threshold: float = 2.5, select_active_high: bool = True,
+        settling: float = 0.00002, min_dwell: float = 0.00001) -> dict:
+    """Decode scanned displays from real samples. Each digit has label, seven segments in abcdefg order, and select signal. Thresholds may be volts or amps according to supplied vectors. Reject conflicting active digits and sustained wrong patterns."""
+    from .waveforms import parse_raw
+    from .verification import decode_display
+    return decode_display(parse_raw(Path(raw_path)),digits,expected,start,stop,threshold,active_high,
+                          select_threshold,select_active_high,settling,min_dwell)
+
+
+@server.tool()
+@checked
+def native_run_parameter_sweep(parameters: list[dict], analysis: dict, measurements: list[dict],
+        criteria: list[dict] | None = None, objective: dict | None = None) -> dict:
+    """Run up to 100 native trials. Parameters: {ref,index,values}; analysis uses native run options. Constraints use measurement IDs. Optional objective: {measurement,goal:min|max|target,target}. Restore the original circuit after all trials; return feasible candidates and best index."""
+    return experiments.start(parameters,analysis,measurements,criteria,objective,background=False)
+
+
+@server.tool()
+@checked
+def native_start_experiment(parameters: list[dict], analysis: dict, measurements: list[dict],
+        criteria: list[dict] | None = None, objective: dict | None = None) -> dict:
+    """Start a persisted background parameter experiment. Circuit edits are locked until completion or cancellation. Query with its ID."""
+    return experiments.start(parameters,analysis,measurements,criteria,objective)
+
+
+@server.tool()
+@checked
+def native_experiment_status(experiment_id: str) -> dict:
+    """Read saved experiment inputs, trials, measurements and final state, including after service restart."""
+    return experiments.store.read(experiment_id)
+
+
+@server.tool()
+@checked
+def native_list_experiments(limit: int = 20) -> dict:
+    """List recent persistent experiments."""
+    return {'experiments':experiments.store.list(limit)}
+
+
+@server.tool()
+@checked
+def native_cancel_experiment(experiment_id: str) -> dict:
+    """Request cancellation, interrupt an active native analysis and restore original parameters before the job finishes."""
+    return experiments.cancel(experiment_id)
+
+
+@server.tool()
+@checked
+def native_retry_experiment(experiment_id: str) -> dict:
+    """Retry saved inputs in a new copy of the saved source circuit. Close the current native session first. Return a new experiment ID linked to the original."""
+    return experiments.retry(experiment_id)
+
+
+@server.tool()
+@checked
+def native_export_experiment_report(experiment_id: str, output_directory: str, language: str = 'zh',
+        title: str | None = None, signals: list[str] | None = None, overwrite: bool = False) -> dict:
+    """Export a saved experiment as standalone HTML, Markdown, measurement CSV, native circuit PNG and waveform SVG. Choose zh or en and up to eight plotted signals."""
+    from .reports import export_report
+    return export_report(experiments.store.read(experiment_id),output_directory,language,title,signals,overwrite)
+
+
+@server.tool()
+@checked
+def native_check_layout() -> dict:
+    """Check native connector attachment, invisible wires, orthogonal segments, graphic bounding-box overlap and wires crossing other component bounds."""
+    from .layout import check_layout
+    with host.lock:return check_layout(host.call('componentBounds')['components'],host.call('wires')['wires'])
+
+
+@server.tool()
+@checked
+def native_plan_wire_route(wire_id: str, clearance: int = 9) -> dict:
+    """Plan an orthogonal wire path around native component bounds. Return points without editing; preserve actual electrical connector endpoints."""
+    from .layout import plan_wire
+    with host.lock:
+        wire=next((w for w in host.call('wires')['wires'] if w['id']==wire_id),None)
+        if not wire:raise ValueError('Wire not found')
+        return plan_wire(host.call('componentBounds')['components'],wire,clearance)
+
+
+@server.tool()
+@checked
+def native_auto_route_wire(wire_id: str, clearance: int = 9) -> dict:
+    """Plan and apply one obstacle-aware native wire route as an undoable edit. Keep the same electrical source and target connectors."""
+    with host.lock:
+        plan=native_plan_wire_route(wire_id,clearance)
+        result=host.edit('route',{'id':wire_id,'points':plan['points']})
+        return {**plan,'wire':result}
 
 
 @server.tool()
@@ -353,4 +482,5 @@ def main():
     try:
         server.run(transport='stdio')
     finally:
+        experiments.shutdown()
         host.close()

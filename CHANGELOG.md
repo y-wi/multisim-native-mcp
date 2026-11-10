@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-11-10
+
+- Install upgrades into independent environments while an existing MCP server is running.
+- Add native AC linear, decade and octave sweeps with complex RAW/CSV output.
+- Record analysis command stages, explicit transient initial conditions and mixed analog/digital plots.
+- Add time-weighted measurements, numeric criteria and scanned seven-segment decoding.
+- Add bounded parameter sweeps, constraints, candidate ranking and parameter restoration.
+- Persist background experiments, cancellation, restart state and explicit checkpoint replay.
+- Export Chinese or English HTML, Markdown, CSV, circuit PNG and waveform SVG reports.
+- Check native connector attachment and layout; plan and apply obstacle-aware wire routes.
+
 ## 0.2.2 — 2026-11-10
 
 - Make reference-profile hash and version comparisons informational during startup and process attachment.

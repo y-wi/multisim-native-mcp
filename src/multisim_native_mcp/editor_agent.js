@@ -538,9 +538,9 @@ function simulationInfo() {
   const session=simSession(),ext=extension();
   const status=method('SCH_CAP.dll','?GetCurrentSimulationStatustext@CMultisimExtension@@','pointer',['pointer'])(ext).readPointer().readUtf16String();
   const errorCount=method('SpiceifsSch.dll','?GetSpiceErrorCount@CSchSpiceSession@SpiceifsSch@@','uint',['pointer'])(session),errors=[];
-  for(let n=0;n<Math.min(errorCount,20);n++){const cmd=Memory.alloc(4),code=Memory.alloc(4);if(method('SpiceifsSch.dll','?GetSpiceError@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer','uint','pointer','pointer'])(session,n,cmd,code))errors.push({command:cmd.readS32(),code:code.readS32()});}
+  for(let n=Math.max(0,errorCount-100);n<errorCount;n++){const cmd=Memory.alloc(4),code=Memory.alloc(4);if(method('SpiceifsSch.dll','?GetSpiceError@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer','uint','pointer','pointer'])(session,n,cmd,code))errors.push({index:n,command:cmd.readS32(),code:code.readS32()});}
   const frontend=method('SHARUTIL.dll','?GetGuiFEObject@CGuiFEObj@@','pointer',[],'mscdecl')();
-  return {session:session.toString(),state:method('SCH_CAP.dll','?GetSimulationState@CMultisimExtension@@','int',['pointer'])(ext),remote_initialized:!!method('SpiceifsSch.dll','?IsSimulationInitialized@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer'])(session),status,errors,error_text:instanceString('SHARUTIL.dll','?GetErrorString@CGuiFEObj@@',frontend)};
+  return {session:session.toString(),state:method('SCH_CAP.dll','?GetSimulationState@CMultisimExtension@@','int',['pointer'])(ext),remote_initialized:!!method('SpiceifsSch.dll','?IsSimulationInitialized@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer'])(session),status,error_count:errorCount,errors,error_text:instanceString('SHARUTIL.dll','?GetErrorString@CGuiFEObj@@',frontend)};
 }
 function simulate(args) {
   const session=simSession();
@@ -561,17 +561,24 @@ function simulate(args) {
   if(session.add(0x18).readPointer().isNull())throw new Error('Native simulator transport is not initialized');
   const initialized=method('SpiceifsSch.dll','?SessionInit@CSchSpiceSession@SpiceifsSch@@','int',['pointer'])(session);
   // Remove old circuits and plots so a failed run cannot masquerade as a previous successful result.
-  const shell=command=>method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(session,Memory.allocUtf16String(command));
-  shell('destroy all');shell('remcirc');
+  const trace=[];
+  const shell=(stage,command)=>{
+    const before=simulationInfo().error_count,start=Date.now();
+    const result=method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(session,Memory.allocUtf16String(command));
+    const after=simulationInfo(),errors=after.errors.filter(e=>e.code!==0&&(after.error_count<before||e.index>=before));
+    trace.push({stage,command,result,elapsed_ms:Date.now()-start,errors});return {result,errors};
+  };
+  shell('clear-plots','destroy all');shell('clear-circuit','remcirc');
   let sent;
   if(args.source_path) {
     const file=new File(args.source_path,'w');file.write(text.content+'\n.end\n');file.close();
-    sent=method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(session,Memory.allocUtf16String('source "'+args.source_path.replace(/\\/g,'/')+'"'));
+    sent=shell('load-netlist','source "'+args.source_path.replace(/\\/g,'/')+'"').result;
   } else sent=method('SpiceifsSch.dll','?SendNetlist@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer','uint8','pointer'])(session,stdString(text.content+'\n.end\n',false),0,stdString('',true));
-  const command=args.analysis==='op'?'op':`tran ${args.step} ${args.stop}`;
+  if(trace.length&&trace[trace.length-1].errors.length)return {failed:true,stage:'load-netlist',trace,...simulationInfo()};
+  const command=args.analysis==='op'?'op':args.analysis==='ac'?`ac ${args.ac_sweep} ${args.ac_points} ${args.ac_start} ${args.ac_stop}`:`tran ${args.step} ${args.stop}${args.use_initial_conditions?' uic':''}`;
   send({analysis_started:true,command});
-  const result=method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(session,Memory.allocUtf16String(command));
-  return {prepared,initialize_result:initialized,sent,result,command,...simulationInfo()};
+  const completed=shell('analysis',command);
+  return {prepared,initialize_result:initialized,sent,result:completed.result,command,trace,failed:completed.result!==0||completed.errors.length>0,stage:'analysis',...simulationInfo()};
 }
 function simulationExport(args) {
   const session=simSession(),run=method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer']);
@@ -580,7 +587,19 @@ function simulationExport(args) {
   method('SCH_CAP.dll','?SetSimulationState@CMultisimExtension@@','void',['pointer','int','uint8','uint8'])(extension(),0,0,0);
   return {ascii,result,path:args.path,...simulationInfo()};
 }
-const editorHandlers={parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,sheets:readSheets,
+function componentBounds() {
+  const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  return {components:components().components.map(c=>{
+    const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(ptr(c.id)),rect=Memory.alloc(16);
+    method('Od101dll.dll','?GetBox@CODGraphic@@QAEXAAVCRect@@AAVCODInstContext@@@Z','void',['pointer','pointer','pointer'])(graphic,rect,context);
+    const [x1,y1,x2,y2]=[0,4,8,12].map(n=>rect.add(n).readS32());
+    return {...c,bounds:{left:Math.min(x1,x2),top:Math.min(y1,y2),right:Math.max(x1,x2),bottom:Math.max(y1,y2)}};
+  })};
+}
+const editorHandlers={
+  componentBounds,
+  simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
+  parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,sheets:readSheets,
   electricalPorts:args=>{
     const ci=ciObject(ptr(component(args.ref).id)),count=method('CIRCEXP.dll','?GetPortCount@CiComponent@@','int',['pointer'])(ci),ports=[];
     for(let n=0;n<count;n++){const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);ports.push({id:port.toString(),name:returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)});}

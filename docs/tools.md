@@ -40,12 +40,26 @@
 | `native_undo` | — |
 | `native_redo` | — |
 | `native_check_netlist` | — |
-| `native_run_analysis` | analysis, step, stop |
-| `native_start_analysis` | analysis, step, stop |
+| `native_run_analysis` | analysis, step, stop, use_initial_conditions |
+| `native_start_analysis` | analysis, step, stop, use_initial_conditions |
 | `native_analysis_status` | — |
 | `native_control_analysis` | action |
-| `native_read_waveform` | raw_path, offset, limit |
+| `native_read_waveform` | raw_path, offset, limit, plot_index |
 | `native_export_image` | output_path, overwrite |
+| `native_run_ac_sweep` | sweep, points, start_hz, stop_hz |
+| `native_measure_waveform` | raw_path, measurements |
+| `native_verify_waveform` | raw_path, measurements, criteria |
+| `native_decode_seven_segment` | raw_path, digits, expected, start, stop, threshold, active_high, select_threshold, select_active_high, settling, min_dwell |
+| `native_run_parameter_sweep` | parameters, analysis, measurements, criteria, objective |
+| `native_start_experiment` | parameters, analysis, measurements, criteria, objective |
+| `native_experiment_status` | experiment_id |
+| `native_list_experiments` | limit |
+| `native_cancel_experiment` | experiment_id |
+| `native_retry_experiment` | experiment_id |
+| `native_export_experiment_report` | experiment_id, output_directory, language, title, signals, overwrite |
+| `native_check_layout` | — |
+| `native_plan_wire_route` | wire_id, clearance |
+| `native_auto_route_wire` | wire_id, clearance |
 
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 参数类型和默认值以 MCP `tools/list` 返回的 schema 为准。

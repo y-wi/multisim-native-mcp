@@ -44,43 +44,7 @@ class ExistingProcess:
         if getattr(self, 'handle', None): self.kernel.CloseHandle(self.handle)
 
 
-def parse_raw(path: Path) -> dict:
-    """Parse actual Multisim ASCII SPICE vectors, preserving native display names and units."""
-    text = path.read_text(encoding='utf-8', errors='replace')
-    headers, variables = {}, []
-    lines = iter(text.splitlines())
-    for line in lines:
-        if line.strip() == 'Variables:': break
-        if ':' in line:
-            key,value = line.split(':',1); headers[key.strip()] = value.strip()
-    count, points = int(headers.get('No. Variables',0)), int(headers.get('No. Points',0))
-    if not (0 < count <= 10000 and 0 < points <= 1000000) or count*points > 2000000:
-        raise RuntimeError('Simulator did not produce a bounded nonempty result plot: '+str(headers))
-    for line in lines:
-        if line.strip() == 'Values:': break
-        if line.strip():
-            fields = line.split(None,3)
-            if len(fields)<3: raise ValueError('Malformed native vector metadata')
-            variables.append({'index':int(fields[0]),'name':fields[3] if len(fields)>3 else fields[1],
-                              'native_name':fields[1],'kind':fields[2]})
-    if len(variables)!=count: raise ValueError('Native variable count mismatch')
-    values = [line.strip().split() for line in lines if line.strip()]
-    if len(values)!=count*points: raise ValueError('Native sample count mismatch')
-    complex_plot = 'complex' in headers.get('Flags','')
-    rows=[]
-    for n in range(points):
-        row=[]
-        for col in range(count):
-            fields=values[n*count+col]
-            if col==0 and int(fields[0])!=n: raise ValueError('Native sample index mismatch')
-            token=fields[-1]
-            value=[float(v) for v in token.split(',')] if complex_plot else float(token)
-            if not all(math.isfinite(v) for v in (value if isinstance(value,list) else [value])):
-                raise ValueError('Simulator returned a nonfinite sample')
-            row.append(value)
-        rows.append(row)
-    return {'title':headers.get('Title'),'plot':headers.get('Plotname'),'points':points,
-            'variables':variables,'complex':complex_plot,'rows':rows}
+from .waveforms import parse_raw, export_csv, summarize
 
 
 class EditorService(NativeHost):
@@ -214,31 +178,52 @@ class EditorService(NativeHost):
             return {'path':str(path),'width':size[0],'height':size[1],'bytes':path.stat().st_size,
                     'source':'native schematic image exporter'}
 
-    def run_analysis(self, analysis='op', step=1e-5, stop=0.01):
-        if analysis not in ('op','tran'): raise ValueError('analysis must be op or tran')
+    def run_analysis(self, analysis='op', step=1e-5, stop=0.01, use_initial_conditions=False,
+                     ac_sweep='dec',ac_points=20,ac_start=1.,ac_stop=100000.):
+        if analysis not in ('op','tran','ac'): raise ValueError('analysis must be op, tran or ac')
         if not (math.isfinite(step) and math.isfinite(stop) and 0<step<=stop<=100 and stop/step<=100000*(1+1e-12)):
             raise ValueError('Require 0 < step <= stop <= 100 seconds and at most 100000 requested steps')
+        if not isinstance(use_initial_conditions,bool):raise ValueError('use_initial_conditions must be boolean')
+        if use_initial_conditions and analysis!='tran':raise ValueError('Initial conditions apply to transient analysis')
+        if ac_sweep not in ('lin','dec','oct') or not isinstance(ac_points,int) or not 1<=ac_points<=100000:
+            raise ValueError('Choose lin, dec or oct and 1 to 100000 points')
+        if not (math.isfinite(ac_start) and math.isfinite(ac_stop) and 0<ac_start<ac_stop<=1e12):
+            raise ValueError('Require 0 < AC start < stop <= 1e12 Hz')
+        estimated=ac_points if ac_sweep=='lin' else ac_points*math.log(ac_stop/ac_start,10 if ac_sweep=='dec' else 2)+1
+        if estimated>100000:raise ValueError('AC sweep exceeds 100000 requested points')
         with self.lock:
-            netlist=self.netlist()
-            if netlist['failed']: raise RuntimeError('Native netlist check failed: '+netlist['messages'])
             stem=self.folder()/('analysis-'+uuid.uuid4().hex)
-            result=self.call('simulate',{'analysis':analysis,'step':step,'stop':stop,'source_path':str(stem.with_suffix('.cir'))})
-            raw=stem.with_suffix('.raw');exported=self.call('simulationExport',{'path':str(raw)})
-            if not raw.is_file():raise RuntimeError('Native simulator produced no waveform: '+json.dumps({'analysis':result,'export':exported}))
-            data=parse_raw(raw)
-            expected='Transient Analysis' if analysis=='tran' else 'DC Operating Point'
-            if data['plot']!=expected: raise RuntimeError('Simulator returned an unexpected plot: '+str(data['plot']))
-            csv_path=stem.with_suffix('.csv')
-            with csv_path.open('w',newline='',encoding='utf-8-sig') as file:
-                writer=csv.writer(file);writer.writerow(v['name'] for v in data['variables']);writer.writerows(data['rows'])
-            summary=[{**v,'first':data['rows'][0][i],'last':data['rows'][-1][i],
-                      'min':min(row[i] for row in data['rows']),'max':max(row[i] for row in data['rows'])} for i,v in enumerate(data['variables'])]
+            diagnostic=stem.with_suffix('.json');record={'analysis':analysis,'status':'running','use_initial_conditions':use_initial_conditions}
+            diagnostic.write_text(json.dumps(record,indent=2),encoding='utf-8')
+            self.analysis_started.clear()
+            try:
+                netlist=self.netlist()
+                record['netlist']={k:v for k,v in netlist.items() if k!='content'}
+                if netlist['failed']:raise RuntimeError('Native netlist check failed: '+netlist['messages'])
+                result=self.call('simulate',{'analysis':analysis,'step':step,'stop':stop,'use_initial_conditions':use_initial_conditions,
+                    'ac_sweep':ac_sweep,'ac_points':ac_points,'ac_start':ac_start,'ac_stop':ac_stop,'source_path':str(stem.with_suffix('.cir'))})
+                record['native']=result
+                self.analysis_started.clear()
+                if result.get('failed'):raise RuntimeError('Native analysis failed at '+result.get('stage','analysis'))
+                raw=stem.with_suffix('.raw');exported=self.call('simulationExport',{'path':str(raw)});record['export']=exported
+                if not raw.is_file():raise RuntimeError('Native simulator produced no waveform')
+                data=parse_raw(raw)
+                expected={'tran':'Transient Analysis','op':'DC Operating Point','ac':'AC Analysis'}[analysis]
+                if data['plot']!=expected: raise RuntimeError('Simulator returned an unexpected plot: '+str(data['plot']))
+                csv_path=stem.with_suffix('.csv')
+                export_csv(data,csv_path);summary=summarize(data)
+            except Exception as error:
+                self.analysis_started.clear()
+                record.update(status='failed',error=str(error));diagnostic.write_text(json.dumps(record,indent=2),encoding='utf-8')
+                raise RuntimeError(str(error)+'; diagnostics: '+str(diagnostic)) from error
+            record.update(status='complete',points=data['points'],raw_path=str(raw),csv_path=str(csv_path))
+            diagnostic.write_text(json.dumps(record,indent=2),encoding='utf-8')
             return {'analysis':analysis,'plot':data['plot'],'points':data['points'],'vectors':summary,
                     'preview':data['rows'][:10],'raw_path':str(raw),'csv_path':str(csv_path),
-                    'netlist_path':str(stem.with_suffix('.cir')),'native_result':result,
+                    'netlist_path':str(stem.with_suffix('.cir')),'native_result':result,'diagnostic_path':str(diagnostic),
                     'handles_invalidated':netlist['handles_invalidated']}
 
-    def start_analysis(self,analysis='tran',step=1e-5,stop=0.01):
+    def start_analysis(self,analysis='tran',step=1e-5,stop=0.01,use_initial_conditions=False):
         if not self.agent: raise RuntimeError('Open a native project first')
         if self.analysis_job and self.analysis_job['status'] in ('running','pause_requested','stop_requested'):
             raise RuntimeError('An analysis is already running')
@@ -246,7 +231,7 @@ class EditorService(NativeHost):
         job={'id':uuid.uuid4().hex,'status':'running','started':time.time()};self.analysis_job=job
         def run():
             try:
-                job['result']=self.run_analysis(analysis,step,stop)
+                job['result']=self.run_analysis(analysis,step,stop,use_initial_conditions)
                 job['status']='stopped' if job.get('stop_requested') else 'complete'
             except Exception as error:
                 job['error']=str(error);job['status']='stopped' if job.get('stop_requested') else 'failed'
@@ -269,12 +254,17 @@ class EditorService(NativeHost):
         result=self.agent.exports_sync.control(action)
         return {**result,'status':job['status']}
 
-    def read_waveform(self,path,offset=0,limit=1000):
+    def read_waveform(self,path,offset=0,limit=1000,plot_index=0):
         source=Path(path)
         if not source.is_absolute() or not source.is_file() or source.suffix.lower()!='.raw': raise ValueError('Choose an existing absolute ASCII RAW path')
         if not 0<=offset or not 1<=limit<=1000: raise ValueError('Invalid waveform offset or limit')
-        data=parse_raw(source);rows=data.pop('rows')
-        return {**data,'offset':offset,'rows':rows[offset:offset+limit],'has_more':offset+limit<len(rows)}
+        first=parse_raw(source);plots=[first,*first.pop('additional_plots')]
+        if not isinstance(plot_index,int) or not 0<=plot_index<len(plots):raise ValueError('Invalid waveform plot index')
+        data=plots[plot_index];rows=data['rows']
+        return {**{k:v for k,v in data.items() if k!='rows'},'plot_index':plot_index,
+                'plots':[{k:v for k,v in plot.items() if k!='rows'} for plot in plots],
+                'event_fields':['time','rising','falling'] if data['digital'] else None,
+                'offset':offset,'rows':rows[offset:offset+limit],'has_more':offset+limit<len(rows)}
 
     def attach(self,pid,project_index=0):
         with self.lock:

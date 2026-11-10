@@ -2,12 +2,15 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Native circuit editing and analog analysis for NI Multisim through the Model Context Protocol.
+Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
-- 44 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- 58 MCP tools for components, wires, sheets, subcircuits, models and analysis.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
 - Batch edits, checkpoints, undo, redo and native save/reopen.
-- DC operating point and transient analog analysis with RAW and CSV output.
+- DC operating point, transient and AC analysis with RAW and CSV output.
+- Time-weighted measurements, numeric acceptance checks and scanned display decoding.
+- Parameter sweeps, candidate ranking, persistent background experiments and bilingual reports.
+- Native layout checks and obstacle-aware orthogonal wire routing.
 - Schematic export to PNG and BMP.
 - Windows installer with automatic Python setup and Codex configuration.
 
@@ -20,19 +23,17 @@ Native circuit editing and analog analysis for NI Multisim through the Model Con
 | Python | CPython 3.12, 32-bit; installed automatically |
 | Transport | STDIO |
 
-Multisim 14.2 and 14.3 expose the same private native object model, and both are supported: component and wire editing, netlist generation, DC operating point and transient analysis, native `.ms14` save and image export work on either version. `native-profile.json` keeps the 14.3 module hashes as a diagnostic reference, so a 14.2 installation reports `compatible: false` while still running normally. An installation outside the default 14.3 directory is selected with `-MultisimPath` (see [Install](#install)).
-
 ## Install
 
 Run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.2.2/install.ps1 | iex
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.0/install.ps1 | iex
 ```
 
 Restart Codex. The server appears as `multisim_native`.
 
-To install from a checkout:
+To install from source:
 
 ```powershell
 git clone https://github.com/y-wi/multisim-native-mcp.git
@@ -65,7 +66,7 @@ Add the resulting `mcpServers.multisim_native` entry to your client's MCP config
 ### Install with uv
 
 ```powershell
-uv tool install --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.2.2/multisim_native_mcp-0.2.2-py3-none-any.whl
+uv tool install --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.0/multisim_native_mcp-0.3.0-py3-none-any.whl
 multisim-native-mcp doctor
 multisim-native-mcp configure
 ```
@@ -110,10 +111,15 @@ Read component and wire IDs again after undo, redo or a netlist check that retur
 | Connections | Named pins, junctions, branches, endpoint replacement, net labels |
 | Hierarchy | Sheets, subcircuits, hierarchical ports |
 | History | Batch editing, checkpoints, undo, redo |
-| Analog analysis | DC operating point, transient analysis, waveform data |
+| Analysis | DC operating point, transient, AC lin/dec/oct, mixed RAW plots |
+| Measurements | Mean, RMS, extrema, frequency, duty cycle, AC gain and phase |
+| Verification | Limits, target tolerances, multiplexed seven-segment decoding |
+| Experiments | Parameter sweeps, constraints, ranking, background jobs, cancel and retry |
+| Reports | Chinese/English HTML, Markdown, CSV, native circuit PNG and waveform SVG |
+| Layout | Endpoint checks, component bounds, orthogonal obstacle routing |
 | Export | Native `.ms14`, PNG, BMP, RAW, CSV |
 
-[Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)
+[Experiment guide](docs/experiments.md) · [Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)
 
 ## Configuration
 
@@ -124,8 +130,6 @@ Read component and wire IDs again after undo, redo or a netlist check that retur
 | `CODEX_HOME` | Codex configuration directory | `%USERPROFILE%\.codex` |
 
 Run `multisim-native-mcp doctor` to check the Python architecture, package resources and Multisim modules. `configure` preserves the other Codex settings and creates a timestamped backup when updating an existing configuration.
-
-Module hashes and the reference version are diagnostic information. Startup, process attachment and installation readiness use runtime availability.
 
 ## Development
 
