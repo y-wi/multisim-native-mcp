@@ -4,7 +4,8 @@
 
 Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
-- 64 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- 65 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- Interactive simulation with configurable time steps, real-time pacing and actual display captures.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
 - Batch edits, checkpoints, undo, redo and native save/reopen.
 - DC operating point, transient and AC analysis with RAW and CSV output.

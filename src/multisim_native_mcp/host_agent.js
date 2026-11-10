@@ -339,7 +339,7 @@ rpc.exports = {
       if (!wake(uiThread, 0, 0, 0)) { jobs.splice(jobs.indexOf(job), 1); reject(new Error('Native host UI thread could not be scheduled')); }
     });
   },
-  close() { killTimer(hwnd,timerId);return true; },
+  close() { closeInteractiveOptions();killTimer(hwnd,timerId);return true; },
   identity() { return { pid: Process.id, uiThread, hwnd: hwnd.toString(), nativeModules: Process.enumerateModules().length }; }
   ,diagnostics(){return {netlist_errors:nativeErrorLog.slice(-100)};}
 };

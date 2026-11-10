@@ -48,6 +48,7 @@
 | `native_analysis_status` | — |
 | `native_control_analysis` | action |
 | `native_control_interactive` | action, wait_timeout |
+| `native_configure_interactive` | time_step, max_time_step, real_time, reset |
 | `native_interactive_status` | include_displays |
 | `native_export_interactive_image` | output_path, overwrite, dpi, scale, region, fit_content, padding, show_frame, show_grid, active_component, wait_timeout |
 | `native_read_waveform` | raw_path, offset, limit, plot_index |
@@ -77,6 +78,10 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 将当前图纸的元件、接点图形同步到电气连接坐标，再校正导线端点，支持一次撤销。返回校正的元件、接点、导线及验证结果和完整状态，保留原电气连接关系。
 
 ### Interactive simulation / 交互仿真
+
+`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` sets a 1 ms solver/output step ceiling with native real-time pacing for low-frequency LED circuits. Select a step that resolves the fastest relevant signal and verify the result. Call without arguments to read settings, or with `reset: true` to restore application defaults. Change options while stopped; they apply to subsequent `native_control_interactive(start)` runs in this session. They do not modify the `.ms14` file or numeric analysis. `interactive_options.last_start` reports the actual native startup command and applied step values; `command_pending` remains true and `native_result` null until the native command returns. Read simulation state and errors to confirm the running result.
+
+低频流水灯可先调用 `native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)`，将输出步长和最大求解步长设为 1 ms，并使用原生实时节奏。步长需能分辨电路中最快的有效信号，并通过波形验证。无参数调用读取配置，`reset: true` 恢复软件默认值。停止仿真后修改；配置对本会话后续由 `native_control_interactive(start)` 启动的运行生效，不写入 `.ms14`，不影响数值分析。`interactive_options.last_start` 返回实际原生启动命令、步长和执行结果。
 
 `native_control_interactive` accepts `start`, `pause`, `resume` and `stop`. It returns the observed `state_name`, `simulation_time_s`, errors and `transition_confirmed`. Repeating an already reached state is idempotent. A queued command with `transition_confirmed: false` is still pending; poll `native_interactive_status`. Numeric-session cleanup occurs before starting interactive simulation and preserves object handles. Stop interactive simulation before editing, regenerating the netlist or running numeric analysis.
 

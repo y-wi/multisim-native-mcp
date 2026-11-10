@@ -27,12 +27,12 @@ Use the `multisim_native` MCP server to edit real Multisim objects and run its s
 | Electrical connections | `native_connect_pins`, `native_connect_endpoints`, `native_reconnect_wire`, `native_split_wire`, `native_route_wire`, `native_repair_wire_geometry` |
 | Sheets and hierarchy | `native_create_sheet`, `native_create_subcircuit`, `native_create_hierarchical_port` |
 | Transactions | `native_edit_batch`, `native_undo`, `native_redo` |
-| Netlist and simulation | `native_check_netlist`, `native_run_analysis`, `native_run_ac_sweep`, `native_start_analysis`, `native_analysis_status`, `native_control_analysis`, `native_control_interactive`, `native_interactive_status` |
+| Netlist and simulation | `native_check_netlist`, `native_run_analysis`, `native_run_ac_sweep`, `native_start_analysis`, `native_analysis_status`, `native_control_analysis`, `native_configure_interactive`, `native_control_interactive`, `native_interactive_status` |
 | Numeric verification | `native_read_waveform`, `native_measure_waveform`, `native_verify_waveform`, `native_decode_seven_segment` |
 | Parameter experiments | `native_run_parameter_sweep`, `native_start_experiment`, `native_experiment_status`, `native_list_experiments`, `native_cancel_experiment`, `native_retry_experiment` |
 | Presentation and reports | `native_check_layout`, `native_plan_wire_route`, `native_auto_route_wire`, `native_export_image`, `native_export_interactive_image`, `native_export_experiment_report` |
 
-This map covers the current 64-tool interface; availability and parameter types come from the connected server's schemas.
+This map covers the current 65-tool interface; availability and parameter types come from the connected server's schemas.
 
 ## Build and edit efficiently
 
@@ -61,6 +61,8 @@ Read [references/analysis.md](references/analysis.md) for measurement schemas, s
 ## Interactive simulation and lit displays
 
 Use `native_control_interactive(action)` for `start`, `pause`, `resume` and `stop`. Check `transition_confirmed` and actual `state_name`; a queued command is insufficient. `native_interactive_status(include_displays: true)` returns native segment states, decoded digits and simulated time. Stop interactive simulation before editing, checking the netlist or running numeric analysis. Starting after numeric analysis automatically cleans its simulator context.
+
+For slow interactive LED circuits, stop simulation and configure `native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` before starting. Choose the step from the fastest relevant circuit signal and verify frequency and output order; 1 ms is intended for low-frequency LED behavior. Read `interactive_options.last_start` to confirm the actual native parameters. Configuration lasts for this session's MCP-started runs; it is not saved in the circuit. Call without arguments to inspect or with `reset: true` to restore defaults.
 
 For a real lit screenshot, use `native_export_interactive_image`, optionally with `active_component: "DS1"` and `wait_timeout: 15`. It captures an actual native runtime frame and reports its segment states. A multiplexed circuit lights digits successively: capture each reference separately and verify the returned digit; an instantaneous frame does not show all four phases at once. Paused simulation cannot advance to another digit, so resume first. Numerical waveform decoding and live display readout provide separate evidence.
 

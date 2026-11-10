@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6
+
+- Add configurable native interactive time steps and real-time pacing for low-frequency display circuits.
+- Report the effective interactive startup parameters and preserve numeric-analysis settings.
+
 ## 0.3.5
 
 - Add native interactive simulation start, pause, resume, stop and observed transition status.

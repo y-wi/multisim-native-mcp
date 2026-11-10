@@ -385,6 +385,14 @@ def native_interactive_status(include_displays: bool = False) -> dict:
 
 @server.tool()
 @checked
+def native_configure_interactive(time_step: float | None = None, max_time_step: float | None = None,
+    real_time: bool | None = None, reset: bool = False) -> dict:
+    """Read or configure the next MCP-started native GUI interactive runs. Time steps are seconds (1e-12 to 1); real_time enables native real-time pacing. For low-frequency LED circuits, time_step=0.001, max_time_step=0.001, real_time=true reduces unnecessary solver steps. Choose steps suitable for the circuit's fastest signals and verify its waveforms. Change options while stopped. Settings belong to this attached session, do not change the saved circuit or numeric analysis, and reset=true restores application defaults. Status reports the actual applied native startup parameters."""
+    return host.configure_interactive(time_step,max_time_step,real_time,reset)
+
+
+@server.tool()
+@checked
 def native_control_interactive(action: Literal['start','pause','resume','stop'], wait_timeout: float = 5.0) -> dict:
     """Start, pause, resume or stop the GUI interactive simulator through native application commands, without mouse input. Poll actual state and return transition_confirmed; queued requests alone do not establish completion. Resume continues paused time; start begins a stopped run."""
     return host.control_interactive(action,wait_timeout)

@@ -53,3 +53,32 @@ def test_numeric_context_is_cleaned_before_interactive_start():
 def test_invalid_interactive_capture_options_fail_before_native_calls(args):
     h=EditorService();h.call=lambda *args:pytest.fail('Reached native calls')
     with pytest.raises(ValueError):h.export_interactive_image('unused.png',**args)
+
+
+@pytest.mark.parametrize('options',[
+    {'time_step':0},{'time_step':float('nan')},{'max_time_step':float('inf')},
+    {'max_time_step':2},{'time_step':True},{'real_time':1},{'reset':1},
+    {'reset':True,'time_step':.001},
+])
+def test_invalid_interactive_solver_options_do_not_reach_native_host(options):
+    h=EditorService();h.call=lambda *args:pytest.fail('Invalid options reached native host')
+    with pytest.raises(ValueError):h.configure_interactive(**options)
+
+
+def test_configuration_is_readable_during_run_but_changes_require_stopped_state():
+    h,calls=fake_host(['running'])
+    h.call=lambda op,args=None:({'configuration':{'time_step':.001}} if op=='interactiveOptions' else
+                               {'state_name':'running'})
+    assert h.configure_interactive()['configuration']['time_step']==.001
+    for options in [{'time_step':.001},{'reset':True}]:
+        with pytest.raises(RuntimeError,match='Stop interactive'):h.configure_interactive(**options)
+
+
+def test_configuration_has_explicit_units_and_numeric_job_guard():
+    h,calls=fake_host(['stopped']);original=h.call
+    h.call=lambda op,args=None:args if op=='interactiveOptions' else original(op,args)
+    assert h.configure_interactive(.001,.0001,True)=={
+        'configuration':{'time_step':.001,'max_time_step':.0001,'real_time':True},'reset':False}
+    assert h.configure_interactive(reset=True)=={'configuration':{},'reset':True}
+    h.analysis_job={'status':'running'}
+    with pytest.raises(RuntimeError,match='numeric analysis'):h.configure_interactive(time_step=.001)

@@ -681,6 +681,45 @@ function exportInteractiveImage(args) {
   if(JSON.stringify(displays)!==JSON.stringify(after))return {ready:false,state:state.state,display_states:after};
   return {ready:true,...image,capture_mode:'instantaneous',display_states:displays,simulation:interactiveStatus()};
 }
+let interactiveConfiguration={},interactiveStartup=null,interactiveLastStart=null,interactiveOptionsHook=null;
+function rewriteInteractiveCommand(command,configuration) {
+  const parts=command.trim().split(/\s+/);
+  if(parts[0]!=='tran'||parts[1]!=='-env-options'||!(Number(parts[3])>=1e25))return null;
+  if(parts.length<6||![2,3,4,5].every(i=>Number.isFinite(Number(parts[i])))||Number(parts[2])<=0||Number(parts[5])<=0)
+    throw new Error('Unsupported native interactive transient parameters');
+  let flags=parts.slice(6);
+  if(configuration.time_step!==undefined){parts[2]=String(configuration.time_step);flags=flags.filter(f=>f!=='auto_tstep');}
+  if(configuration.max_time_step!==undefined){parts[5]=String(configuration.max_time_step);flags=flags.filter(f=>f!=='auto_tmax');}
+  if(configuration.real_time!==undefined){flags=flags.filter(f=>f!=='throttle');if(configuration.real_time)flags.push('throttle');}
+  return {command:[...parts.slice(0,6),...flags].join(' '),time_step:Number(parts[2]),max_time_step:Number(parts[5]),real_time:flags.includes('throttle')};
+}
+function closeInteractiveOptions() {
+  if(interactiveOptionsHook)interactiveOptionsHook.detach();
+  interactiveOptionsHook=null;interactiveStartup=null;interactiveConfiguration={};interactiveLastStart=null;
+}
+function interactiveOptions(args={}) {
+  const changes=args.configuration||{};
+  if(args.reset)closeInteractiveOptions();
+  else if(Object.keys(changes).length){
+    interactiveConfiguration={...interactiveConfiguration,...changes};interactiveLastStart=null;
+    if(!interactiveOptionsHook){
+      const address=Process.getModuleByName('SpiceifsSch.dll').getExportByName('?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@QAE?AW4ESimMsgErrorCode@2@PB_W@Z');
+      interactiveOptionsHook=Interceptor.attach(address,{onEnter(parameters){
+        if(!interactiveStartup||Date.now()>interactiveStartup.expires)return;
+        if(Process.getCurrentThreadId()!==uiThread||!this.context.ecx.equals(interactiveStartup.session)||activeNativeOperation==='simulate')return;
+        try {
+          if(!project().proj.equals(interactiveStartup.project))return;
+          const original=parameters[0].readUtf16String(),effective=rewriteInteractiveCommand(original,interactiveConfiguration);
+          if(!effective)return;
+          this.commandStorage=Memory.allocUtf16String(effective.command);parameters[0]=this.commandStorage;
+          this.appliedOptions=interactiveLastStart={applied:true,command_pending:true,native_result:null,original_command:original,effective_command:effective.command,time_step:effective.time_step,max_time_step:effective.max_time_step,real_time:effective.real_time};
+          interactiveStartup=null;
+        } catch(error){interactiveLastStart={applied:false,error:String(error)};interactiveStartup=null;}
+      },onLeave(result){if(this.appliedOptions){this.appliedOptions.command_pending=false;this.appliedOptions.native_result=result.toInt32();if(result.toInt32()!==0)this.appliedOptions.applied=false;}}});
+    }
+  }
+  return {configured:Object.keys(interactiveConfiguration).length>0,scope:'session',applies_to:'MCP interactive start',persisted_in_circuit:false,configuration:{...interactiveConfiguration},last_start:interactiveLastStart};
+}
 function interactiveStatus(args={}) {
   const info=simulationInfo(),names={'-1':'unprepared',0:'stopped',1:'running',2:'paused'},panes=[];
   const getClass=method('user32.dll','GetClassNameW','int',['pointer','pointer','int'],'stdcall');
@@ -699,7 +738,7 @@ function interactiveStatus(args={}) {
   },'int',['pointer','pointer'],'stdcall');
   method('user32.dll','EnumChildWindows','int',['pointer','pointer','pointer'],'stdcall')(hwnd,callback,ptr(0));
   const time=panes.map(text=>text.match(/(?:^|:)\s*([0-9]+(?:[.,][0-9]+)?(?:e[+-]?[0-9]+)?)\s*(ns|us|µs|μs|ms|s)\s*$/i)).find(Boolean);
-  return {...info,state_name:names[info.state]||'unknown',simulation_time_s:time?Number(time[1].replace(',','.'))*({ns:1e-9,us:1e-6,'µs':1e-6,'μs':1e-6,ms:1e-3,s:1}[time[2].toLowerCase()]):null,status_panes:panes,...(args.include_displays?{display_readout_available:info.remote_initialized&&[1,2].includes(info.state),display_states:info.remote_initialized&&[1,2].includes(info.state)?interactiveDisplays():[]}:{})};
+  return {...info,state_name:names[info.state]||'unknown',simulation_time_s:time?Number(time[1].replace(',','.'))*({ns:1e-9,us:1e-6,'µs':1e-6,'μs':1e-6,ms:1e-3,s:1}[time[2].toLowerCase()]):null,status_panes:panes,interactive_options:interactiveOptions(),...(args.include_displays?{display_readout_available:info.remote_initialized&&[1,2].includes(info.state),display_states:info.remote_initialized&&[1,2].includes(info.state)?interactiveDisplays():[]}:{})};
 }
 function interactiveCommand(args) {
   const names={start:'UnifiedSimulationPlay',resume:'UnifiedSimulationPlay',pause:'UnifiedSimulationPause',stop:'UnifiedSimulationStop'};
@@ -707,6 +746,10 @@ function interactiveCommand(args) {
   const handler=method('PlugInManagement.dll','?GetUserInterfaceHandler@CUserInterfaceHandler@@','pointer',[],'mscdecl')();
   const id=method('PlugInManagement.dll','?GetCommandID@CUserInterfaceHandler@@','uint16',['pointer','uint16','pointer'])(handler,25,Memory.allocUtf16String(names[args.action]));
   if(id===65535)throw new Error('Native interactive command is unavailable: '+names[args.action]);
+  if(args.action==='start'){
+    activateSheet();interactiveLastStart=null;
+    if(Object.keys(interactiveConfiguration).length)interactiveStartup={session:simSession(),project:project().proj,expires:Date.now()+15000};
+  } else if(args.action==='stop')interactiveStartup=null;
   const queued=method('user32.dll','PostMessageW','int',['pointer','uint','uint','int'],'stdcall')(hwnd,0x111,id,0);
   if(!queued)throw new Error('Native interactive command could not be queued');
   return {action:args.action,command_id:id,requested:true};
@@ -865,7 +908,7 @@ const editorHandlers={
     for(let n=0;n<count;n++){const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);ports.push({id:port.toString(),name:returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)});}
     return {ref:args.ref,ports};
   },
-  snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
+  snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveOptions,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
   dbInfo:()=>{
     const db=masterDb(),manager=method('LibraryAccess.dll','?GetDatabaseManager@CDatabaseManager@@SAP','pointer',[],'mscdecl')(),files=method('LibraryAccess.dll','?GetDatabaseFileManager@CDatabaseManager@@','pointer',['pointer'])(manager),record=method('LibraryAccess.dll','?GetMasterDatabaseFile@CDatabaseFileManager@@','pointer',['pointer'])(files),strings=[];
     for(let offset=0;offset<128;offset+=4)try{const value=record.add(offset).readPointer().readUtf16String(520);if(value&&/^[A-Za-z]:|Master|Database/i.test(value))strings.push({offset,value});}catch(_){}

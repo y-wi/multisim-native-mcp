@@ -351,6 +351,24 @@ class EditorService(NativeHost):
             raise RuntimeError('A numeric analysis is active; use native_analysis_status and native_control_analysis')
         return self.call('interactiveStatus',{'include_displays':include_displays})
 
+    def configure_interactive(self,time_step=None,max_time_step=None,real_time=None,reset=False):
+        configuration={}
+        for name,value in [('time_step',time_step),('max_time_step',max_time_step)]:
+            if value is None:continue
+            if isinstance(value,bool) or not isinstance(value,(float,int)) or not math.isfinite(value) or not 1e-12<=value<=1:
+                raise ValueError(name+' must be a finite number from 1e-12 to 1 second')
+            configuration[name]=value
+        if real_time is not None:
+            if not isinstance(real_time,bool):raise ValueError('real_time must be boolean')
+            configuration['real_time']=real_time
+        if not isinstance(reset,bool):raise ValueError('reset must be boolean')
+        if reset and configuration:raise ValueError('reset cannot be combined with simulation options')
+        with self.lock:
+            if configuration or reset:
+                state=self.interactive_status()
+                if state['state_name'] in ('running','paused'):raise RuntimeError('Stop interactive simulation before changing its options')
+            return self.call('interactiveOptions',{'configuration':configuration,'reset':reset})
+
     def control_interactive(self,action,wait_timeout=5.0):
         if action not in ('start','pause','resume','stop'):raise ValueError('Choose start, pause, resume or stop')
         if not math.isfinite(wait_timeout) or not 0<=wait_timeout<=15:raise ValueError('wait_timeout must be 0 to 15 seconds')
