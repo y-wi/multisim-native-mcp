@@ -101,6 +101,17 @@ function returnedString(dll,prefix,object) {
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(result);
   return value;
 }
+function connectorGeometry(connector) {
+  const x=Memory.alloc(4),y=Memory.alloc(4);
+  native('Od101dll.dll','?GetCenter@CODConnector@@UAEXAAH0@Z','void',['pointer','pointer','pointer'])(connector,x,y);
+  const graphic=ptrFunction('Od101dll.dll','?GetGraphic@CODComponent@@QAEPAVCODGraphic@@XZ',['pointer'])(connector),gx=Memory.alloc(4),gy=Memory.alloc(4);
+  // CODConnector::GetCenter calls this virtual graphic center, then snaps to the grid.
+  const address=graphic.readPointer().add(0x38).readPointer(),key='graphicCenter|'+address;
+  if(!functions.has(key))functions.set(key,new NativeFunction(address,'void',['pointer','pointer','pointer'],'thiscall'));
+  functions.get(key)(graphic,gx,gy);
+  const position={x:x.readS32(),y:y.readS32()},graphic_position={x:gx.readFloat(),y:gy.readFloat()};
+  return {...position,graphic_position,graphics_aligned:Math.abs(position.x-graphic_position.x)<=.5&&Math.abs(position.y-graphic_position.y)<=.5};
+}
 function components() {
   const d=diagram();const result=[];
   for(const obj of listChildren(d.composite)) {
@@ -117,9 +128,7 @@ function components() {
       if(!connector)continue;
       objectHandles.set(connector.toString(),connector);
       const count=native('Od101dll.dll','?GetConnectionCount@CODConnector@@QBEHXZ','int',['pointer'])(connector);
-      const x=Memory.alloc(4), y=Memory.alloc(4);
-      native('Od101dll.dll','?GetCenter@CODConnector@@UAEXAAH0@Z','void',['pointer','pointer','pointer'])(connector,x,y);
-      pins.push({name:pin,id:connector.toString(),connections:count,x:x.readS32(),y:y.readS32()});
+      pins.push({name:pin,id:connector.toString(),connections:count,...connectorGeometry(connector)});
     }
     result.push({id:obj.toString(),ref,local_ref:localRef,transform:matrix(obj),pins});
   }
@@ -188,12 +197,12 @@ function ensureWirePen(object,preferred) {
   native('Od101dll.dll','?SetPen@CODFullGraphic@@UAEXPAVCPen@@@Z','void',['pointer','pointer'])(graphic,pen);
 }
 function save(args) {
-  synchronizeGraphics();
+  const geometry_repair=args.preserve_geometry?null:synchronizeGraphics();
   const p=project(),value=pathString(args.path),error=Memory.alloc(4);error.writeS32(0);
   const symbol=Process.getModuleByName('DrwEngine.dll').enumerateExports().find(e=>e.name.startsWith('?SaveProjectDocument@CProject'));
   const result=new NativeFunction(symbol.address,'int',['pointer','pointer','pointer','uint8','pointer','uint8','uint8'],'thiscall')(p.proj,value,ptr(0),0,error,0,0);
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(value);
-  return {nativeResult:result,errorCode:error.readS32(),path:args.path};
+  return {nativeResult:result,errorCode:error.readS32(),path:args.path,geometry_repair};
 }
 function wire(args) {
   const d=diagram(),source=component(args.source.ref),target=component(args.target.ref);
@@ -242,7 +251,7 @@ function wires() {
     if(count.readS32()>10000)throw new Error('Invalid native vertex count');
     for(let n=0;!v.isNull()&&n<count.readS32();n++)points.push({x:v.add(n*8).readS32(),y:v.add(n*8+4).readS32()});
     if(!v.isNull())freeNativeArray(v);
-    function center(connector){const x=Memory.alloc(4),y=Memory.alloc(4);native('Od101dll.dll','?GetCenter@CODConnector@@UAEXAAH0@Z','void',['pointer','pointer','pointer'])(connector,x,y);return {x:x.readS32(),y:y.readS32()};}
+    function center(connector){return connectorGeometry(connector);}
     result.push({id:object.toString(),coordinate_system:'sheet_units',source:{id:source.toString(),...pins.get(source.toString()),...center(source)},target:{id:target.toString(),...pins.get(target.toString()),...center(target)},points,has_pen:!wirePen(object).isNull()});
   }
   return {path:projectPath(d.proj),coordinate_system:'sheet_units',wires:result};
@@ -271,7 +280,9 @@ function runJob(job) {
     const handler=handlers[job.name] || (editorHandlers[job.name] && (()=>editorHandlers[job.name](job.args)));
     if (!handler) throw new Error('Unknown native operation');
     const result = handler();
-    setImmediate(() => job.resolve(result));
+    // Keep large nested circuit states out of Frida's native JsonNode deep-copy path.
+    const encoded=JSON.stringify(result);
+    setImmediate(() => job.resolve(encoded));
   } catch (error) { setImmediate(() => job.reject(error)); }
   finally {activeNativeOperation=null;}
 }

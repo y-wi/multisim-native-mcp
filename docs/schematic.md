@@ -14,6 +14,12 @@ Placement defaults to the library graphic `anchor: origin`, which can be offset 
 
 放置默认使用元件库图形原点 `anchor: origin`，该点可能既不是符号中心，也不是引脚。可选择 `anchor: center` 按符号主体中心放置，或使用 `anchor: pin` 配合准确的 `pin` 名称按引脚放置。结果中的 `placement` 提供请求位置、实际锚点、图形原点与主体边界。网格吸附可能调整位置，布线必须读取返回的真实引脚坐标。
 
+## Connector graphics / 连接图形
+
+Pins and wire endpoints include `graphic_position` and `graphics_aligned` alongside grid-snapped `x`/`y`. `native_check_layout` checks both positions. Use `native_repair_wire_geometry` when an imported circuit looks disconnected despite an intact electrical netlist; it synchronizes symbols, junctions and wire routes as one undoable edit. Saving and image export also synchronize connector graphics. Undo checkpoints preserve their original geometry.
+
+引脚与导线端点同时提供吸附后的 `x`/`y`、图形位置 `graphic_position` 及对齐状态 `graphics_aligned`；`native_check_layout` 会同时检查两者。导入电路电气连接正常、图形却留有缝隙时，使用 `native_repair_wire_geometry` 同步元件、接点和走线，支持一次撤销。保存和图片导出也会同步连接图形；撤销检查点保留原几何状态。
+
 ## Components and parameters / 元件与参数
 
 `native_search_library` returns `Family_Name` and `Group_Name`. Filter by exact `family` and `group` names. For an adjustable resistor, search `RESISTOR_VIRTUAL` in family `RESISTOR`. Placement returns the actual model, native reference prefix and indexed parameters. Primary parameters include a name, unit and `role: value`.
@@ -78,9 +84,9 @@ Export defaults to a clean circuit image. Set `show_frame: true` to include the 
 }
 ```
 
-Choose either `region` or `fit_content`. Export leaves component positions, connections and sheet dimensions unchanged. The maximum image size is 32 million pixels. Whole-page export returns off-page references and rejects an export when every component lies outside the page.
+Choose either `region` or `fit_content`. Export preserves electrical attachments and sheet dimensions; connector graphics are synchronized before rendering. The maximum image size is 32 million pixels. Whole-page export returns off-page references and rejects an export when every component lies outside the page.
 
-`region` 与 `fit_content` 二选一。导出保持元件位置、连接和图纸尺寸，最大图片为 3200 万像素。整页导出会返回页外元件引用；所有元件均在页外时会提示改用适配内容或区域导出。
+`region` 与 `fit_content` 二选一。导出前会同步连接图形，保留电气连接和图纸尺寸，最大图片为 3200 万像素。整页导出会返回页外元件引用；所有元件均在页外时会提示改用适配内容或区域导出。
 
 Move a reference or value label with `native_move_component_label(component_ref, x, y, kind)`, where `kind` is `reference` (default) or `value`. Coordinates specify the label's center. Read label text and bounds from `state.components[].labels`; the symbol and electrical pins remain at their existing positions. Parameter edits refresh native value text immediately, and rotation keeps labels upright and clear of the symbol body.
 

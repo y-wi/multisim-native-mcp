@@ -33,6 +33,10 @@ def check_layout(components,wires):
             endpoint=pins.get(wire[end]['id'],wire[end])
             if all(k in endpoint for k in ('x','y')) and any(endpoint[k]!=points[index][k] for k in ('x','y')):
                 issues.append({'kind':'detached_endpoint','severity':'error','wire':wire['id'],'end':end})
+            graphic=endpoint.get('graphic_position')
+            if graphic and any(abs(graphic[k]-points[index][k])>.5 for k in ('x','y')):
+                issues.append({'kind':'graphic_endpoint_mismatch','severity':'error','wire':wire['id'],'end':end,
+                               'graphic_position':graphic,'wire_position':points[index]})
         if wire.get('has_pen') is False:issues.append({'kind':'invisible_wire','severity':'error','wire':wire['id']})
         for n,(a,b) in enumerate(zip(points,points[1:])):
             if a['x']!=b['x'] and a['y']!=b['y']:

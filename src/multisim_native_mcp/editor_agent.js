@@ -195,6 +195,43 @@ function routeWire(args) {
   setWirePoints(ptr(w.id),args.points);
   return wires().wires.find(w=>w.id===w.id&&w.id===args.id);
 }
+function repairWireGeometry() {
+  const before=wires().wires,changed=[],alignedComponents=[],alignedJunctions=[];
+  const moveNative=method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int']);
+  for(const c of components().components)if(c.pins.some(p=>!p.graphics_aligned)||c.transform.slice(4).some(v=>Math.abs(v-Math.round(v))>.0001)){
+    moveNative(diagram().graph,ptr(c.id),0,0);alignedComponents.push(c.ref);
+  }
+  const junctions=new Map();
+  for(const wire of before)for(const end of ['source','target'])if(!wire[end].ref)junctions.set(wire[end].id,wire[end]);
+  for(const [id,j] of junctions)if(!j.graphics_aligned){
+    moveNative(diagram().graph,ptr(id),Math.round(j.x-j.graphic_position.x),Math.round(j.y-j.graphic_position.y));alignedJunctions.push(id);
+  }
+  const selected=wires().wires;
+  for(const wire of selected){
+    if(wire.points.length<2)throw new Error('Wire '+wire.id+' has no editable route');
+    let points=wire.points.map(p=>({...p}));
+    for(const end of ['source','target']){
+      if(end==='target')points.reverse();
+      const old=points[0],next=points[1],actual={x:wire[end].x,y:wire[end].y};
+      if(points.length>2){if(old.x===next.x)next.x=actual.x;else if(old.y===next.y)next.y=actual.y;}
+      points[0]=actual;
+      if(end==='target')points.reverse();
+    }
+    if(points.length===2&&points[0].x!==points[1].x&&points[0].y!==points[1].y)points.splice(1,0,{x:points[0].x,y:points[1].y});
+    points=points.filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);
+    if(points.length===1)points.push({...points[0]});
+    if(JSON.stringify(points)===JSON.stringify(wire.points))continue;
+    setWirePoints(ptr(wire.id),points);changed.push(wire.id);
+  }
+  const after=wires().wires,lookup=new Map(after.map(w=>[w.id,w]));
+  const intact=before.length===after.length&&before.every(w=>{const a=lookup.get(w.id);return a&&a.source.id===w.source.id&&a.target.id===w.target.id;});
+  if(!intact)throw new Error('Wire geometry repair changed an electrical connection');
+  const mismatches=selected.filter(w=>{const a=lookup.get(w.id);return ['source','target'].some((end,i)=>{const p=a.points[i?a.points.length-1:0];return p.x!==a[end].x||p.y!==a[end].y;});}).map(w=>w.id);
+  const graphics=after.flatMap(w=>['source','target'].filter(end=>!w[end].graphics_aligned).map(end=>({wire:w.id,end})));
+  if(mismatches.length||graphics.length)throw new Error('Geometry repair left '+mismatches.length+' route and '+graphics.length+' graphic endpoint mismatches');
+  if(changed.length||alignedComponents.length||alignedJunctions.length)method('DrwEngine.dll','?SetAllModified@CProject@@','void',['pointer','uint8'])(project().proj,1);
+  return {checked_wires:selected.length,changed_wires:changed.length,wire_ids:changed,aligned_components:alignedComponents,aligned_junctions:alignedJunctions,electrical_connections_unchanged:intact,remaining_mismatches:mismatches,remaining_graphic_mismatches:graphics};
+}
 function readSheets() {
   const d=diagram();
   return d.candidates.filter(s=>/CSCH_CAPSubSheet/.test(s.name)).map((s,index)=>{
@@ -267,7 +304,7 @@ function setProjectPath(path) {
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(value);return !!ok;
 }
 function snapshot(args) {
-  const original=projectPath(project().proj),modified=inspect().modified,result=save(args);
+  const original=projectPath(project().proj),modified=inspect().modified,result=save({...args,preserve_geometry:true});
   if(!setProjectPath(original))throw new Error('Unable to restore project path after checkpoint');
   if(modified)method('DrwEngine.dll','?SetAllModified@CProject@@','void',['pointer','uint8'])(project().proj,1);
   return {...result,original_path:original,modified};
@@ -591,13 +628,7 @@ function exportImage(args) {
   }
 }
 function synchronizeGraphics() {
-  const repaired=[];
-  for(const c of components().components) {
-    if(!c.transform.slice(4).some(v=>Math.abs(v-Math.round(v))>0.0001))continue;
-    const moved=move({ref:c.ref,dx:0,dy:0});
-    repaired.push({ref:c.ref,before:moved.before,after:moved.after});
-  }
-  return {repaired};
+  return repairWireGeometry();
 }
 function netlist() {
   const firstError=nativeErrorLog.length;
@@ -776,7 +807,7 @@ function arrangeComponentLabels(ref) {
 const editorHandlers={
   componentBounds,synchronizeGraphics,circuitState,componentLabels,moveLabel:moveComponentLabel,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
-  parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,sheets:readSheets,
+  parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,repairWireGeometry,sheets:readSheets,
   electricalPorts:args=>{
     const ci=ciObject(ptr(component(args.ref).id)),count=method('CIRCEXP.dll','?GetPortCount@CiComponent@@','int',['pointer'])(ci),ports=[];
     for(let n=0;n<count;n++){const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);ports.push({id:port.toString(),name:returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)});}

@@ -234,7 +234,7 @@ class NativeHost:
             timer.start()
             started = time.monotonic()
             try:
-                return self.agent.exports_sync.dispatch(operation, args or {})
+                return json.loads(self.agent.exports_sync.dispatch(operation, args or {}))
             except (frida.InvalidOperationError, frida.ProcessNotFoundError) as error:
                 raise RuntimeError(f'Native {operation} interrupted after {time.monotonic()-started:.1f}s; owned process exit={owned.poll()}: {error}') from error
             finally:

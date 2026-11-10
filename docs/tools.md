@@ -27,6 +27,7 @@
 | `native_transform_component` | component_ref, angle, mirror_axis |
 | `native_rename_component` | component_ref, new_ref |
 | `native_route_wire` | wire_id, points |
+| `native_repair_wire_geometry` | — |
 | `native_split_wire` | wire_id, x, y |
 | `native_connect_endpoints` | source, target, points |
 | `native_reconnect_wire` | wire_id, source, target |
@@ -65,3 +66,9 @@
 
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 参数类型和默认值以 MCP `tools/list` 返回的 schema 为准。
+
+### `native_repair_wire_geometry`
+
+Synchronize symbol and junction graphics with grid-snapped electrical connectors, then align wire endpoints on the selected sheet. This is one undoable edit. Returns aligned components/junctions, changed wire IDs, endpoint verification and fresh state. Electrical attachments are preserved.
+
+将当前图纸的元件、接点图形同步到电气连接坐标，再校正导线端点，支持一次撤销。返回校正的元件、接点、导线及验证结果和完整状态，保留原电气连接关系。

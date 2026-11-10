@@ -24,7 +24,7 @@ Use the `multisim_native` MCP server to edit real Multisim objects and run its s
 | Find and place parts | `native_search_library`, `native_place_component`, `native_copy_component`, `native_replace_component`, `native_delete_object` |
 | Values and models | `native_get_parameters`, `native_set_parameter`, `native_get_model`, `native_set_model_text` |
 | Layout and labels | `native_move_component`, `native_transform_component`, `native_rename_component`, `native_move_component_label`, `native_add_text`, `native_label_wire` |
-| Electrical connections | `native_connect_pins`, `native_connect_endpoints`, `native_reconnect_wire`, `native_split_wire`, `native_route_wire` |
+| Electrical connections | `native_connect_pins`, `native_connect_endpoints`, `native_reconnect_wire`, `native_split_wire`, `native_route_wire`, `native_repair_wire_geometry` |
 | Sheets and hierarchy | `native_create_sheet`, `native_create_subcircuit`, `native_create_hierarchical_port` |
 | Transactions | `native_edit_batch`, `native_undo`, `native_redo` |
 | Netlist and simulation | `native_check_netlist`, `native_run_analysis`, `native_run_ac_sweep`, `native_start_analysis`, `native_analysis_status`, `native_control_analysis` |
@@ -32,7 +32,7 @@ Use the `multisim_native` MCP server to edit real Multisim objects and run its s
 | Parameter experiments | `native_run_parameter_sweep`, `native_start_experiment`, `native_experiment_status`, `native_list_experiments`, `native_cancel_experiment`, `native_retry_experiment` |
 | Presentation and reports | `native_check_layout`, `native_plan_wire_route`, `native_auto_route_wire`, `native_export_image`, `native_export_experiment_report` |
 
-This map covers the current 60-tool interface; availability and parameter types come from the connected server's schemas.
+This map covers the current 61-tool interface; availability and parameter types come from the connected server's schemas.
 
 ## Build and edit efficiently
 
@@ -60,6 +60,6 @@ Read [references/analysis.md](references/analysis.md) for measurement schemas, s
 
 ## Finish the requested artifact
 
-Use `native_check_layout` when checking wire attachment or geometry. Move a label with `native_move_component_label`, choosing `kind: reference` or `kind: value`, rather than moving the symbol. Validate the saved page with a whole-sheet export (`fit_content: false`, no `region`) at a suitable DPI. Images default to no frame and no grid; use `show_frame` and `show_grid` when requested. An optional content-fitted image or crop can follow; it does not establish that the saved circuit lies inside its sheet. Preserve an intentionally off-page layout when the user explicitly requests it.
+Use `native_check_layout` when checking wire attachment or geometry. Compare `graphic_position` with grid-snapped `x`/`y`; electrical connectivity alone does not prove visual attachment. For visible gaps, call `native_repair_wire_geometry` to synchronize symbols, junctions and wire endpoints in one undoable edit. Save and reopen the result before accepting it. Move a label with `native_move_component_label`, choosing `kind: reference` or `kind: value`, rather than moving the symbol. Validate the saved page with a whole-sheet export (`fit_content: false`, no `region`) at a suitable DPI. Images default to no frame and no grid; use `show_frame` and `show_grid` when requested. An optional content-fitted image or crop can follow; it does not establish that the saved circuit lies inside its sheet. Preserve an intentionally off-page layout when the user explicitly requests it.
 
 Report the saved circuit and requested exports, the measured result and any remaining failed criterion. Keep numeric verification distinct from visual inspection. If the user will validate the simulation themselves, deliver the edited artifact without starting additional experiments.

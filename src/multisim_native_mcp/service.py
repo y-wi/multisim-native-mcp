@@ -20,7 +20,7 @@ from .paths import DATA_DIR
 
 MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
              'rename','addText','labelWire','splitWire','connectEndpoint','reconnect',
-             'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize'}
+             'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize','repairWireGeometry'}
 TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect','replace','splitWire',
                     'createSheet','createSubcircuit','createPort','rename'}
 

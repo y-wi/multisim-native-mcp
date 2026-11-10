@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Repair off-grid symbol and junction graphics together with wire endpoints, preserving electrical attachments.
+- Expose drawn connector positions and detect visible gaps in layout checks.
+- Preserve unrepaired geometry in undo checkpoints and persist aligned geometry when saving.
+- Serialize large native state responses before RPC transport to prevent JsonNode copy crashes.
+
 ## 0.3.3
 
 - Unify measurement and criterion IDs, publish nested request schemas and identify invalid fields before execution.

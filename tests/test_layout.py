@@ -17,3 +17,13 @@ def test_detect_electrical_endpoint_mismatch_and_hidden_wire():
     result=check_layout(components,wires)
     assert result['errors']==2
     assert {i['kind'] for i in result['issues']}=={'detached_endpoint','invisible_wire'}
+
+
+def test_detect_graphic_gap_even_when_electrical_endpoint_matches():
+    wires=[{'id':'w','source':{'id':'p','x':270,'y':423,'graphic_position':{'x':269,'y':420}},
+            'target':{'id':'j','x':315,'y':423,'graphic_position':{'x':315,'y':423}},
+            'points':[{'x':270,'y':423},{'x':315,'y':423}]}]
+    result=check_layout([],wires)
+    assert result['errors']==1
+    assert result['issues'][0]['kind']=='graphic_endpoint_mismatch'
+    assert result['issues'][0]['end']=='source'

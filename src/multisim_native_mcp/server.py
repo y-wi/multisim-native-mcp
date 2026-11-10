@@ -237,6 +237,14 @@ def native_route_wire(wire_id: str, points: list[dict[str,int]]) -> dict:
 
 @server.tool()
 @checked
+def native_repair_wire_geometry() -> dict:
+    """Synchronize symbol and junction graphics with grid-snapped electrical connectors, then align existing wire endpoints. Repairs the selected sheet as one undoable transaction and preserves every electrical attachment. Returns changed objects, verification and fresh state."""
+    result=host.batch([{'operation':'repairWireGeometry','arguments':{}}],include_state=True)
+    return {**result['results'][0],'state':result['state'],'undo_depth':result['undo_depth']}
+
+
+@server.tool()
+@checked
 def native_split_wire(wire_id: str, x: int, y: int) -> dict:
     """Split a wire at a point on its existing route and create a real electrical junction for a branch."""
     return host.edit('splitWire',{'id':wire_id,'x':x,'y':y})
