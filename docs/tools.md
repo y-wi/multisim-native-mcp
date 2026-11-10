@@ -47,6 +47,9 @@
 | `native_start_analysis` | analysis, step, stop, use_initial_conditions |
 | `native_analysis_status` | — |
 | `native_control_analysis` | action |
+| `native_control_interactive` | action, wait_timeout |
+| `native_interactive_status` | include_displays |
+| `native_export_interactive_image` | output_path, overwrite, dpi, scale, region, fit_content, padding, show_frame, show_grid, active_component, wait_timeout |
 | `native_read_waveform` | raw_path, offset, limit, plot_index |
 | `native_export_image` | output_path, overwrite, dpi, scale, region, fit_content, padding, show_frame, show_grid |
 | `native_run_ac_sweep` | sweep, points, start_hz, stop_hz |
@@ -72,3 +75,13 @@ Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 Synchronize symbol and junction graphics with grid-snapped electrical connectors, then align wire endpoints on the selected sheet. This is one undoable edit. Returns aligned components/junctions, changed wire IDs, endpoint verification and fresh state. Electrical attachments are preserved.
 
 将当前图纸的元件、接点图形同步到电气连接坐标，再校正导线端点，支持一次撤销。返回校正的元件、接点、导线及验证结果和完整状态，保留原电气连接关系。
+
+### Interactive simulation / 交互仿真
+
+`native_control_interactive` accepts `start`, `pause`, `resume` and `stop`. It returns the observed `state_name`, `simulation_time_s`, errors and `transition_confirmed`. Repeating an already reached state is idempotent. A queued command with `transition_confirmed: false` is still pending; poll `native_interactive_status`. Numeric-session cleanup occurs before starting interactive simulation and preserves object handles. Stop interactive simulation before editing, regenerating the netlist or running numeric analysis.
+
+`native_control_interactive` 支持 `start`、`pause`、`resume`、`stop`，返回实际状态 `state_name`、仿真时间 `simulation_time_s`、错误及 `transition_confirmed`。重复请求已达到的状态不会重新运行；`transition_confirmed: false` 表示仍待确认，可继续查询状态。数值分析切换到交互仿真前自动清理仿真会话，保留对象句柄。编辑、重新生成网表或运行数值分析前，先停止交互仿真。
+
+`native_interactive_status(include_displays: true)` reads native `SEVEN_SEG_COM_A` segment states in `abcdefg` order. `native_export_interactive_image` captures those actual states and the circuit through the native bitmap renderer. Set `active_component` to a display reference to wait for its lit digit. Paused simulation preserves one scan phase; resume before waiting for a different digit. Multiplexed displays illuminate in successive phases, so capture each digit separately. Each image returns `capture_mode: instantaneous`, `display_states` and simulation status; frames are not accumulated into a simultaneous display.
+
+`native_interactive_status(include_displays: true)` 读取原生 `SEVEN_SEG_COM_A` 的段状态，顺序为 `abcdefg`。`native_export_interactive_image` 通过原生位图引擎导出实际显示状态和电路；`active_component` 可指定要等待点亮的数码管。暂停会保留某个位选阶段，等待另一位前先恢复仿真。动态扫描电路逐位点亮，应分别截取各位。每张图片返回 `capture_mode: instantaneous`、`display_states` 和仿真状态。

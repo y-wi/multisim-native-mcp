@@ -378,6 +378,30 @@ def native_analysis_status() -> dict:
 
 @server.tool()
 @checked
+def native_interactive_status(include_displays: bool = False) -> dict:
+    """Read actual native interactive simulation state, errors and simulated time from the native status bar. Separate from numeric analysis jobs."""
+    return host.interactive_status(include_displays)
+
+
+@server.tool()
+@checked
+def native_control_interactive(action: Literal['start','pause','resume','stop'], wait_timeout: float = 5.0) -> dict:
+    """Start, pause, resume or stop the GUI interactive simulator through native application commands, without mouse input. Poll actual state and return transition_confirmed; queued requests alone do not establish completion. Resume continues paused time; start begins a stopped run."""
+    return host.control_interactive(action,wait_timeout)
+
+
+@server.tool()
+@checked
+def native_export_interactive_image(output_path: str, overwrite: bool = False, dpi: int = 144,
+    scale: float = 1.0, region: dict[str,int] | None = None, fit_content: bool = False,
+    padding: int = 18, show_frame: bool = False, show_grid: bool = False,
+    active_component: str | None = None, wait_timeout: float = 5.0) -> dict:
+    """Capture the actual instantaneous native interactive display state as PNG/BMP. Optionally wait for active_component (SEVEN_SEG_COM_A) to show a stable decoded digit, useful for multiplexed scans. Capture and readout occur in one UI-thread operation; no segment states are synthesized or accumulated. Returns native segment states and simulation time. Pause preserves the current phase; resume to capture another phase."""
+    return host.export_interactive_image(output_path,overwrite,dpi,scale,region,fit_content,padding,show_frame,show_grid,active_component,wait_timeout)
+
+
+@server.tool()
+@checked
 def native_control_analysis(action: str) -> dict:
     """Request pause, resume or stop through the native simulator transport. A request acknowledgment is not a confirmed paused state; inspect job status and result artifacts."""
     return host.control_analysis(action)

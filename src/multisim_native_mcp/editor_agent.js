@@ -588,7 +588,7 @@ function reconnectWire(args) {
   removeObject({id:old.id});return connectEndpoint({source,target,points:args.points});
 }
 function exportImage(args) {
-  synchronizeGraphics();
+  if(!args.interactive)synchronizeGraphics();
   const d=diagram(),before=pageGeometry(),region=args.region||{left:0,top:0,right:before.width,bottom:before.height};
   const prefs=new NativeFunction(d.graph.readPointer().add(0x5c).readPointer(),'pointer',['pointer'],'thiscall')(d.graph);
   const displayKeys={'Bounds ON':args.show_frame===true,'Border ON':args.show_frame===true,'Title Block ON':args.show_frame===true,'Simplified Title Block ON':args.show_frame===true,'Grid ON':args.show_grid===true,'Simplified Grid ON':args.show_grid===true},displayBefore={};
@@ -658,6 +658,58 @@ function simulationInfo() {
   const frontend=method('SHARUTIL.dll','?GetGuiFEObject@CGuiFEObj@@','pointer',[],'mscdecl')();
   const actualErrors=errors.filter(e=>e.code!==0);
   return {session:session.toString(),state:method('SCH_CAP.dll','?GetSimulationState@CMultisimExtension@@','int',['pointer'])(ext),remote_initialized:!!method('SpiceifsSch.dll','?IsSimulationInitialized@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer'])(session),status,error_count:actualErrors.length,errors:actualErrors,native_status_record_count:errorCount,native_status_records:errors,error_text:instanceString('SHARUTIL.dll','?GetErrorString@CGuiFEObj@@',frontend)};
+}
+function interactiveDisplays() {
+  const order=[19,16,15,17,13,14,18],digits={'1111110':'0','0110000':'1','1101101':'2','1111001':'3','0110011':'4','1011011':'5','1011111':'6','1110000':'7','1111111':'8','1111011':'9'};
+  return components().components.filter(c=>['A','B','C','D','E','F','G'].every(name=>c.pins.some(p=>p.name===name))).flatMap(c=>{
+    const info=parameterInfo({ref:c.id});if(!/^SEVEN_SEG_COM_A$/.test(info.info[1]||''))return [];
+    const segments=order.map(index=>!!method('Od101dll.dll','?GetSubComponentPrp@CIITSymbolComp@@QAEKW4GRAPHICPROPERTY@@JPAVCTreeInstance@@@Z','uint',['pointer','int','int','pointer'])(ptr(c.id),0,index,treeInstance()));
+    return [{ref:c.ref,model:info.info[1],segment_order:'abcdefg',segments,active:segments.some(Boolean),decoded:digits[segments.map(Number).join('')]??null,source:'native runtime graphic properties'}];
+  });
+}
+function exportInteractiveImage(args) {
+  const state=simulationInfo();
+  if(!state.remote_initialized||![1,2].includes(state.state))throw new Error('Start interactive simulation before capturing its runtime image');
+  const displays=interactiveDisplays();
+  if(args.active_component){
+    const selected=displays.find(d=>d.ref===args.active_component);
+    if(!selected)throw new Error('active_component must identify a supported SEVEN_SEG_COM_A display on this sheet');
+    if(selected.decoded===null)return {ready:false,state:state.state,display_states:displays};
+  }
+  const image=exportImage({...args,interactive:true});
+  const after=interactiveDisplays();
+  if(JSON.stringify(displays)!==JSON.stringify(after))return {ready:false,state:state.state,display_states:after};
+  return {ready:true,...image,capture_mode:'instantaneous',display_states:displays,simulation:interactiveStatus()};
+}
+function interactiveStatus(args={}) {
+  const info=simulationInfo(),names={'-1':'unprepared',0:'stopped',1:'running',2:'paused'},panes=[];
+  const getClass=method('user32.dll','GetClassNameW','int',['pointer','pointer','int'],'stdcall');
+  const callback=new NativeCallback(window=>{
+    const name=Memory.alloc(256);getClass(window,name,128);
+    if(name.readUtf16String()==='msctls_statusbar32'){
+      const sendMessage=method('user32.dll','SendMessageW','int',['pointer','uint','uint','pointer'],'stdcall');
+      const count=sendMessage(window,0x406,0,ptr(0));
+      for(let n=0;n<Math.min(count,32);n++){
+        const length=sendMessage(window,0x40c,n,ptr(0))&65535;
+        if(!length||length>4096)continue;
+        const text=Memory.alloc((length+1)*2);sendMessage(window,0x40d,n,text);panes.push(text.readUtf16String());
+      }
+    }
+    return 1;
+  },'int',['pointer','pointer'],'stdcall');
+  method('user32.dll','EnumChildWindows','int',['pointer','pointer','pointer'],'stdcall')(hwnd,callback,ptr(0));
+  const time=panes.map(text=>text.match(/(?:^|:)\s*([0-9]+(?:[.,][0-9]+)?(?:e[+-]?[0-9]+)?)\s*(ns|us|µs|μs|ms|s)\s*$/i)).find(Boolean);
+  return {...info,state_name:names[info.state]||'unknown',simulation_time_s:time?Number(time[1].replace(',','.'))*({ns:1e-9,us:1e-6,'µs':1e-6,'μs':1e-6,ms:1e-3,s:1}[time[2].toLowerCase()]):null,status_panes:panes,...(args.include_displays?{display_readout_available:info.remote_initialized&&[1,2].includes(info.state),display_states:info.remote_initialized&&[1,2].includes(info.state)?interactiveDisplays():[]}:{})};
+}
+function interactiveCommand(args) {
+  const names={start:'UnifiedSimulationPlay',resume:'UnifiedSimulationPlay',pause:'UnifiedSimulationPause',stop:'UnifiedSimulationStop'};
+  if(!names[args.action])throw new Error('Choose start, pause, resume or stop');
+  const handler=method('PlugInManagement.dll','?GetUserInterfaceHandler@CUserInterfaceHandler@@','pointer',[],'mscdecl')();
+  const id=method('PlugInManagement.dll','?GetCommandID@CUserInterfaceHandler@@','uint16',['pointer','uint16','pointer'])(handler,25,Memory.allocUtf16String(names[args.action]));
+  if(id===65535)throw new Error('Native interactive command is unavailable: '+names[args.action]);
+  const queued=method('user32.dll','PostMessageW','int',['pointer','uint','uint','int'],'stdcall')(hwnd,0x111,id,0);
+  if(!queued)throw new Error('Native interactive command could not be queued');
+  return {action:args.action,command_id:id,requested:true};
 }
 function simulate(args) {
   const session=simSession();
@@ -813,7 +865,7 @@ const editorHandlers={
     for(let n=0;n<count;n++){const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);ports.push({id:port.toString(),name:returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)});}
     return {ref:args.ref,ports};
   },
-  snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
+  snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
   dbInfo:()=>{
     const db=masterDb(),manager=method('LibraryAccess.dll','?GetDatabaseManager@CDatabaseManager@@SAP','pointer',[],'mscdecl')(),files=method('LibraryAccess.dll','?GetDatabaseFileManager@CDatabaseManager@@','pointer',['pointer'])(manager),record=method('LibraryAccess.dll','?GetMasterDatabaseFile@CDatabaseFileManager@@','pointer',['pointer'])(files),strings=[];
     for(let offset=0;offset<128;offset+=4)try{const value=record.add(offset).readPointer().readUtf16String(520);if(value&&/^[A-Za-z]:|Master|Database/i.test(value))strings.push({offset,value});}catch(_){}

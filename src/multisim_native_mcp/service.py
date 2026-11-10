@@ -59,6 +59,7 @@ class EditorService(NativeHost):
     def __init__(self):
         super().__init__()
         self.analysis_job=None
+        self.numeric_session_used=False
 
     def folder(self):
         if not self.working: raise RuntimeError('Open a copy or attach to a project first')
@@ -98,6 +99,7 @@ class EditorService(NativeHost):
                 raise ValueError('Unsupported edit operation: '+str(op.get('operation')))
             self.validate(op['operation'],op.get('arguments',{}))
         with self.lock:
+            if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before editing the circuit')
             # Resolve the first existing target before saving or reopening anything.
             first=operations[0]
             if first['operation'] in {'move','moveLabel','transform','copy','remove','setParameter','setModelText','rename','replace'} and first.get('arguments',{}).get('ref'):
@@ -179,6 +181,7 @@ class EditorService(NativeHost):
 
     def history(self, action):
         with self.lock:
+            if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before undo or redo')
             source,target=(self.undo_stack,self.redo_stack) if action=='undo' else (self.redo_stack,self.undo_stack)
             if not source: raise ValueError('No '+action+' checkpoint')
             current=self.checkpoint(); checkpoint=source[-1]
@@ -187,6 +190,7 @@ class EditorService(NativeHost):
 
     def netlist(self):
         with self.lock:
+            if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before regenerating its netlist or running numeric analysis')
             refreshed=False
             if self.topology_dirty:
                 self.restore(self.checkpoint());refreshed=True
@@ -202,7 +206,7 @@ class EditorService(NativeHost):
         if path.exists() and not overwrite: raise FileExistsError('Output already exists')
         return path.resolve()
 
-    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18,show_frame=False,show_grid=False):
+    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18,show_frame=False,show_grid=False,*,interactive=False,active_component=None,wait_timeout=5.0):
         if not isinstance(dpi,int) or not 36<=dpi<=600 or not math.isfinite(scale) or not .1<=scale<=8:
             raise ValueError('Require 36 to 600 DPI and scale 0.1 to 8')
         factor=dpi/96*scale
@@ -212,7 +216,7 @@ class EditorService(NativeHost):
         if not isinstance(show_frame,bool) or not isinstance(show_grid,bool):raise ValueError('show_frame and show_grid must be boolean')
         with self.lock:
             path=self.output_path(output_path,{'.png','.bmp'},overwrite)
-            self.call('synchronizeGraphics')
+            if not interactive:self.call('synchronizeGraphics')
             state=self.call('circuitState');page=state['page'];content=state['content_bounds']
             off_page=[c['ref'] for c in state['components'] if c['bounds']['left']<0 or c['bounds']['top']<0 or c['bounds']['right']>page['width'] or c['bounds']['bottom']>page['height']]
             if fit_content:
@@ -236,7 +240,17 @@ class EditorService(NativeHost):
             if math.ceil((width+2*gutter)*factor)*math.ceil((height+2*gutter)*factor)>32000000:
                 raise ValueError('Native export including frame gutter exceeds 32 million pixels; reduce DPI, scale or region size')
             intermediate=self.folder()/('native-image-'+uuid.uuid4().hex+'.bmp')
-            self.call('exportImage',{'path':str(intermediate),'render_scale':factor,'show_frame':show_frame,'show_grid':show_grid,**({'region':render_region} if render_region else {})})
+            render_args={'path':str(intermediate),'render_scale':factor,'show_frame':show_frame,'show_grid':show_grid,**({'region':render_region} if render_region else {})}
+            captured=None
+            if interactive:
+                deadline=time.monotonic()+wait_timeout
+                while True:
+                    captured=self.call('exportInteractiveImage',{**render_args,'active_component':active_component})
+                    if captured['ready']:break
+                    if captured['state']==2 or time.monotonic()>=deadline:
+                        raise RuntimeError('No stable lit frame for '+str(active_component)+': '+('simulation is paused; resume before waiting for another scan phase' if captured['state']==2 else 'capture timed out'))
+                    time.sleep(.03)
+            else:self.call('exportImage',render_args)
             with Image.open(intermediate) as image:
                 if gutter:
                     offset=round(gutter*factor)
@@ -245,7 +259,14 @@ class EditorService(NativeHost):
                 size=image.size
             return {'path':str(path),'width':size[0],'height':size[1],'bytes':path.stat().st_size,
                     'dpi':dpi,'scale':scale,'region':region or page['bounds'],'off_page_components':off_page,'show_frame':show_frame,'show_grid':show_grid,
-                    'source':'native schematic image renderer'}
+                    'source':'native schematic image renderer',**({k:captured[k] for k in ('capture_mode','display_states','simulation')} if captured else {})}
+
+    def export_interactive_image(self,output_path,overwrite=False,dpi=144,scale=1.,region=None,fit_content=False,padding=18,show_frame=False,show_grid=False,active_component=None,wait_timeout=5.0):
+        if not math.isfinite(wait_timeout) or not 0<=wait_timeout<=15:raise ValueError('wait_timeout must be 0 to 15 seconds')
+        if active_component is not None and (not isinstance(active_component,str) or not active_component):raise ValueError('active_component must be a component reference')
+        self.interactive_status()
+        return self.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding,show_frame,show_grid,
+                                 interactive=True,active_component=active_component,wait_timeout=wait_timeout)
 
     def run_analysis(self, analysis='op', step=1e-5, stop=0.01, use_initial_conditions=False,
                      ac_sweep='dec',ac_points=20,ac_start=1.,ac_stop=100000.):
@@ -269,6 +290,7 @@ class EditorService(NativeHost):
                 netlist=self.netlist()
                 record['netlist']={k:v for k,v in netlist.items() if k!='content'}
                 if netlist['failed']:raise RuntimeError('Native netlist check failed: '+netlist['messages'])
+                self.numeric_session_used=True
                 result=self.call('simulate',{'analysis':analysis,'step':step,'stop':stop,'use_initial_conditions':use_initial_conditions,
                     'ac_sweep':ac_sweep,'ac_points':ac_points,'ac_start':ac_start,'ac_stop':ac_stop,'source_path':str(stem.with_suffix('.cir'))})
                 record['native']=result
@@ -322,6 +344,42 @@ class EditorService(NativeHost):
         if action=='stop':job['stop_requested']=True
         result=self.agent.exports_sync.control(action)
         return {**result,'status':job['status']}
+
+    def interactive_status(self,include_displays=False):
+        job=self.analysis_job
+        if job and job['status'] in ('running','pause_requested','stop_requested'):
+            raise RuntimeError('A numeric analysis is active; use native_analysis_status and native_control_analysis')
+        return self.call('interactiveStatus',{'include_displays':include_displays})
+
+    def control_interactive(self,action,wait_timeout=5.0):
+        if action not in ('start','pause','resume','stop'):raise ValueError('Choose start, pause, resume or stop')
+        if not math.isfinite(wait_timeout) or not 0<=wait_timeout<=15:raise ValueError('wait_timeout must be 0 to 15 seconds')
+        with self.lock:
+            before=self.interactive_status();state=before['state_name']
+            target={'start':'running','resume':'running','pause':'paused','stop':'stopped'}[action]
+            if (state==target or (action=='stop' and state=='unprepared')) and not self.numeric_session_used and not (action=='stop' and before['remote_initialized']):
+                return {**before,'action':action,'requested':False,'transition_confirmed':True,'already_in_state':True}
+            if (action=='start' and state=='paused') or (action=='resume' and state!='paused') or (action=='pause' and state!='running'):
+                raise ValueError(f'Cannot {action} interactive simulation while {state}')
+            cleaned=False
+            if self.numeric_session_used or (action=='start' and before['remote_initialized'] and state=='stopped'):
+                self.call('interactiveCommand',{'action':'stop'})
+                cleanup_deadline=time.monotonic()+15
+                while True:
+                    current=self.interactive_status()
+                    if not current['remote_initialized']:break
+                    if time.monotonic()>=cleanup_deadline:raise RuntimeError('Numeric simulator cleanup did not complete before interactive control')
+                    time.sleep(.1)
+                self.numeric_session_used=False;cleaned=True
+                if action=='stop':
+                    return {**current,'action':action,'requested':True,'previous_state':state,'transition_confirmed':True,'numeric_context_cleaned':True}
+            command=self.call('interactiveCommand',{'action':action});deadline=time.monotonic()+wait_timeout
+            while True:
+                current=self.interactive_status()
+                confirmed=(current['state_name']==target or (action=='stop' and current['state_name']=='unprepared')) and (action!='stop' or not current['remote_initialized'])
+                if confirmed or time.monotonic()>=deadline:
+                    return {**current,**command,'previous_state':state,'transition_confirmed':confirmed,'numeric_context_cleaned':cleaned,'handles_invalidated':False}
+                time.sleep(.1)
 
     def read_waveform(self,path,offset=0,limit=1000,plot_index=0):
         source=Path(path)

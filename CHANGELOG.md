@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5
+
+- Add native interactive simulation start, pause, resume, stop and observed transition status.
+- Expose simulated time and live seven-segment display states.
+- Capture actual runtime display frames through the native schematic renderer, with optional scan-phase selection.
+- Clean up numeric analysis sessions before entering interactive simulation.
+- Prevent circuit edits and netlist regeneration during active interactive simulation.
+
 ## 0.3.4
 
 - Repair off-grid symbol and junction graphics together with wire endpoints, preserving electrical attachments.

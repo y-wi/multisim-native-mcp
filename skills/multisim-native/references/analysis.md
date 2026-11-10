@@ -64,3 +64,9 @@ While a background experiment is active, inspect it with `native_experiment_stat
 ## Experiment reports
 
 `native_export_experiment_report` accepts a saved completed `experiment_id`, an existing absolute `output_directory`, `language: "zh" | "en"`, optional `title` and up to eight `signals`. It exports standalone HTML, Markdown, measurement CSV, native schematic PNG and waveform SVG. A normal analysis call does not create a persistent experiment record for this tool.
+
+## Interactive simulation
+
+`native_control_interactive` accepts `start`, `pause`, `resume`, `stop` and `wait_timeout` (0–15 seconds). Use `transition_confirmed` to check actual completion. `simulation_time_s` is the native GUI's displayed simulation time; it may have display rounding. Read actual `SEVEN_SEG_COM_A` segments with `native_interactive_status(include_displays: true)`.
+
+Capture the current native runtime image with `native_export_interactive_image`; it shares the static export's region, DPI and frame options. Set `active_component` to wait for that display's lit scan phase. The result includes the actual `display_states`, `simulation` and `capture_mode: instantaneous`. No display states are synthesized. Resume a paused simulation before waiting for a different phase. Stop interactive simulation before numeric analysis, netlist generation or circuit edits.
