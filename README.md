@@ -29,7 +29,8 @@ Native circuit editing, simulation and experiment verification for NI Multisim t
 Run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.0/install.ps1 | iex
+$installer = irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/main/install.ps1
+& ([scriptblock]::Create($installer)) -Source 'https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip'
 ```
 
 Restart Codex. The server appears as `multisim_native`.
@@ -87,7 +88,7 @@ Add the resulting `mcpServers.multisim_native` entry to your client's MCP config
 ### Install with uv
 
 ```powershell
-uv tool install --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.0/multisim_native_mcp-0.3.0-py3-none-any.whl
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip
 multisim-native-mcp doctor
 multisim-native-mcp configure
 ```
@@ -132,6 +133,28 @@ Use `native_attach` with a process ID to work in an existing Multisim window. Cl
 
 Read component and wire IDs again after undo, redo or a netlist check that returns `handles_invalidated: true`.
 
+### Interactive simulation
+
+Use `native_control_interactive` to `start`, `pause`, `resume` or `stop` simulation. Read `native_interactive_status` for the observed state, elapsed simulation time and errors. Export actual lit LEDs or displays with `native_export_interactive_image`.
+
+For a low-frequency LED chaser, stop simulation and call `native_configure_interactive` with:
+
+```json
+{
+  "time_step": 0.001,
+  "max_time_step": 0.001,
+  "real_time": true
+}
+```
+
+Then call `native_control_interactive` with `{"action": "start"}`. The 1 ms steps reduce solver work; native real-time pacing keeps light changes observable. Choose smaller steps for faster signals, and verify the frequency and output sequence after changing them.
+
+Settings apply to subsequent MCP-started runs in the current session. The saved `.ms14` file and numeric-analysis settings stay unchanged. Read `interactive_options.last_start` to confirm the effective native parameters. Call `native_configure_interactive` without arguments to read settings, or with `{"reset": true}` while stopped to restore application defaults.
+
+Example request:
+
+> Run this low-frequency LED chaser interactively with 1 ms steps and real-time pacing. Check its frequency and LED sequence, then export a frame showing an actual lit LED.
+
 ## Tools
 
 | Category | Operations |
@@ -144,6 +167,7 @@ Read component and wire IDs again after undo, redo or a netlist check that retur
 | Hierarchy | Sheets, subcircuits, hierarchical ports |
 | History | Batch editing, checkpoints, undo, redo |
 | Analysis | DC operating point, transient, AC lin/dec/oct, mixed RAW plots |
+| Interactive simulation | Start, pause, resume, stop, configurable time steps, real-time pacing, live display states |
 | Measurements | Mean, RMS, extrema, frequency, duty cycle, AC gain and phase |
 | Verification | Limits, target tolerances, multiplexed seven-segment decoding |
 | Experiments | Parameter sweeps, constraints, ranking, background jobs, cancel and retry |

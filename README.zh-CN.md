@@ -29,7 +29,8 @@
 在 PowerShell 中运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.0/install.ps1 | iex
+$installer = irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/main/install.ps1
+& ([scriptblock]::Create($installer)) -Source 'https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip'
 ```
 
 重启 Codex，工具列表中会出现 `multisim_native`。
@@ -87,7 +88,7 @@ multisim-native-mcp doctor --connect
 ### 使用 uv 安装
 
 ```powershell
-uv tool install --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.0/multisim_native_mcp-0.3.0-py3-none-any.whl
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip
 multisim-native-mcp doctor
 multisim-native-mcp configure
 ```
@@ -132,6 +133,28 @@ Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
 
 撤销、重做，或网表检查返回 `handles_invalidated: true` 后，重新读取元件和导线 ID。
 
+### 交互仿真
+
+使用 `native_control_interactive` 启动（`start`）、暂停（`pause`）、继续（`resume`）或停止（`stop`）仿真。通过 `native_interactive_status` 读取实际状态、仿真时间和错误；使用 `native_export_interactive_image` 导出 LED 或数码管实际点亮的画面。
+
+对于低频流水灯，先停止仿真，再向 `native_configure_interactive` 传入：
+
+```json
+{
+  "time_step": 0.001,
+  "max_time_step": 0.001,
+  "real_time": true
+}
+```
+
+随后调用 `native_control_interactive`，参数为 `{"action": "start"}`。1 ms 步长可减少求解计算，原生实时节奏让灯光按实际时间切换。较快的信号应使用更小步长，调整后验证频率和输出顺序。
+
+配置对当前会话后续由 MCP 启动的运行生效，保存的 `.ms14` 文件和数值分析设置保持不变。通过 `interactive_options.last_start` 确认实际生效的原生参数。无参数调用 `native_configure_interactive` 读取配置；停止仿真后传入 `{"reset": true}` 恢复软件默认值。
+
+可直接向 agent 提出：
+
+> 用 1 ms 步长和实时节奏运行这个低频流水灯，检查频率和 LED 点亮顺序，再截取一张实际点亮的电路图。
+
 ## 工具范围
 
 | 类别 | 操作 |
@@ -144,6 +167,7 @@ Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
 | 层级 | 多图纸、子电路、层级端口 |
 | 历史 | 批量编辑、检查点、撤销、重做 |
 | 分析 | 直流工作点、瞬态、AC 扫频、混合波形 |
+| 交互仿真 | 启动、暂停、继续、停止、可配置步长、实时节奏、器件显示状态 |
 | 测量与验收 | 均值、RMS、频率、占空比、增益、相位、指标约束和数码管解码 |
 | 实验 | 扫参、选优、持久后台任务、取消和重试 |
 | 报告 | 中英文 HTML、Markdown、CSV、电路图和波形图 |
