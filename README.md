@@ -101,6 +101,17 @@ Start with one of these requests in your MCP client:
 
 > Move R1 and keep its wires attached. Add a branch at the midpoint of the output wire, then save and reopen the circuit.
 
+### Agent skill
+
+The [multisim-native skill](skills/multisim-native/SKILL.md) gives agents a capability map, native editing workflows and simulation verification guidance. Install it for Codex from a source checkout:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
+Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
+```
+
+If `CODEX_HOME` is set, use its `skills` directory instead. Restart Codex to discover the skill. Invoke it explicitly as `$multisim-native`, or let the agent select it for Multisim tasks. It uses the configured `multisim_native` MCP connection.
+
 ### Edit an existing project
 
 1. `native_open_copy` — open a working copy.

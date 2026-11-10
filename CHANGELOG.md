@@ -2,6 +2,7 @@
 
 ## 0.3.2
 
+- Add a portable agent skill for native editing, simulation and numeric verification.
 - Expose sheet and printing-paper dimensions, content bounds and complete circuit state.
 - Keep automatic wire routes attached to actual pin coordinates outside page boundaries.
 - Add library family/group filters, model metadata and primary-parameter descriptions.

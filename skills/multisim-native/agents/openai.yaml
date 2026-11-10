@@ -1,0 +1,3 @@
+interface:
+  display_name: "Multisim Native"
+  short_description: "Edit, simulate and verify native Multisim circuits"

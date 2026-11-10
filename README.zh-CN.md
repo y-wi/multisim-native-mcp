@@ -101,6 +101,17 @@ multisim-native-mcp configure
 
 > 移动 R1 并保持导线连接，在输出导线中点添加分支，然后保存并重新打开检查。
 
+### Agent 技能
+
+[multisim-native skill](skills/multisim-native/SKILL.md) 提供能力速查、原生编辑流程和仿真验收方法。可在源码目录中为 Codex 安装：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
+Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
+```
+
+设置了 `CODEX_HOME` 时，改用其下的 `skills` 目录。重启 Codex 后，可通过 `$multisim-native` 显式调用，也可由 agent 在 Multisim 任务中自动选用。技能使用已配置的 `multisim_native` MCP 连接。
+
 ### 编辑已有工程
 
 1. `native_open_copy`：打开工作副本。
