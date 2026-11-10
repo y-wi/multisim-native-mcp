@@ -29,8 +29,7 @@
 在 PowerShell 中运行：
 
 ```powershell
-$installer = irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/main/install.ps1
-& ([scriptblock]::Create($installer)) -Source 'https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip'
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.6/install.ps1 | iex
 ```
 
 重启 Codex，工具列表中会出现 `multisim_native`。
@@ -88,7 +87,7 @@ multisim-native-mcp doctor --connect
 ### 使用 uv 安装
 
 ```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.6/multisim_native_mcp-0.3.6-py3-none-any.whl
 multisim-native-mcp doctor
 multisim-native-mcp configure
 ```

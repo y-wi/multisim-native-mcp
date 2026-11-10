@@ -29,8 +29,7 @@ Native circuit editing, simulation and experiment verification for NI Multisim t
 Run in PowerShell:
 
 ```powershell
-$installer = irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/main/install.ps1
-& ([scriptblock]::Create($installer)) -Source 'https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip'
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.6/install.ps1 | iex
 ```
 
 Restart Codex. The server appears as `multisim_native`.
@@ -88,7 +87,7 @@ Add the resulting `mcpServers.multisim_native` entry to your client's MCP config
 ### Install with uv
 
 ```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/archive/refs/heads/main.zip
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.6/multisim_native_mcp-0.3.6-py3-none-any.whl
 multisim-native-mcp doctor
 multisim-native-mcp configure
 ```
