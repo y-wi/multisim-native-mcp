@@ -200,4 +200,4 @@ Native tests use the installed Multisim runtime. Close Multisim before running t
 
 ## License
 
-[FSF All-Permissive License](LICENSE).
+[MIT License](LICENSE).

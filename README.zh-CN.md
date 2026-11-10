@@ -199,4 +199,4 @@ uv build
 
 ## 许可证
 
-[FSF All-Permissive License](LICENSE)。
+[MIT 许可证](LICENSE)。
