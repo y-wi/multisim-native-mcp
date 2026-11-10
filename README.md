@@ -12,7 +12,7 @@ Native circuit editing, simulation and experiment verification for NI Multisim t
 - Parameter sweeps, candidate ranking, persistent background experiments and bilingual reports.
 - Native layout checks and obstacle-aware orthogonal wire routing.
 - Schematic export to PNG and BMP.
-- Windows installer with automatic Python setup and Codex configuration.
+- Windows installer with automatic Python setup and Codex or DeepSeek Harness configuration.
 
 ## Requirements
 
@@ -46,6 +46,26 @@ For a custom Multisim installation directory:
 ```powershell
 .\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.2'
 ```
+
+### DeepSeek Harness
+
+From a source checkout, install for DSH Desktop:
+
+```powershell
+.\install.ps1 -Client dsh -Profile desktop
+```
+
+Use `-Profile web` or `-Profile tui` for other profiles. The installer updates `cordis.patch.yml`, preserves other plugins, and verifies the MCP connection. Active profiles reload the connection automatically.
+
+Configure an existing installation or export its YAML patch:
+
+```powershell
+multisim-native-mcp configure --client dsh --profile desktop
+multisim-native-mcp config --format dsh
+multisim-native-mcp doctor --connect
+```
+
+The installer reuses a compatible installed environment. Use `-Force` to reinstall, or `-ConfigPath` to select a patch file.
 
 ### Other MCP clients
 

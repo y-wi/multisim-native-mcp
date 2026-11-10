@@ -12,7 +12,7 @@
 - 参数扫描、候选选优、持久后台实验及中英文报告。
 - 原生端点与布局检查、器件避障正交布线。
 - 原理图导出为 PNG、BMP。
-- Windows 安装脚本自动配置 Python 环境和 Codex。
+- Windows 安装脚本自动配置 Python 环境及 Codex 或 DeepSeek Harness。
 
 ## 系统要求
 
@@ -46,6 +46,26 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```powershell
 .\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.2'
 ```
+
+### DeepSeek Harness
+
+从源码目录为 DSH 桌面版安装：
+
+```powershell
+.\install.ps1 -Client dsh -Profile desktop
+```
+
+其他配置可选择 `-Profile web` 或 `-Profile tui`。安装脚本更新 `cordis.patch.yml`，保留其他插件，并验证 MCP 连接。正在运行的配置会自动热重载连接。
+
+为已有安装配置 DSH，或导出 YAML 补丁：
+
+```powershell
+multisim-native-mcp configure --client dsh --profile desktop
+multisim-native-mcp config --format dsh
+multisim-native-mcp doctor --connect
+```
+
+安装脚本会复用兼容的已安装环境。使用 `-Force` 重新安装，或通过 `-ConfigPath` 指定补丁文件。
 
 ### 其他 MCP 客户端
 

@@ -2,12 +2,41 @@ import json,os,shutil
 from pathlib import Path
 import pytest
 import frida
+from PIL import Image,ImageChops
 from multisim_native_mcp.bridge import sha256
 from multisim_native_mcp.paths import RESOURCE_DIR
 from multisim_native_mcp.service import EditorService
 from multisim_native_mcp import bridge,service
 
 pytestmark=pytest.mark.native
+
+
+def test_rotated_and_copied_symbols_stay_aligned_with_wire_graphics(tmp_path):
+    host=EditorService()
+    try:
+        host.create('Rotated divider')
+        for name,ref,x,y in [('DC_POWER','V1',108,108),('RESISTOR_VIRTUAL','R1',306,108),('RESISTOR_VIRTUAL','R2',504,108),('GROUND','0',108,306)]:
+            host.edit('place',{'name':name,'ref':ref,'x':x,'y':y})
+        for ref,value in [('V1',12),('R1',1000),('R2',1000)]:host.edit('setParameter',{'ref':ref,'index':1,'value':value})
+        for a,ap,b,bp in [('V1','1','R1','1'),('R1','2','R2','1'),('R2','2','V1','2'),('V1','2','0','1')]:
+            host.edit('wire',{'source':{'ref':a,'pin':ap},'target':{'ref':b,'pin':bp}})
+        for ref in ['R1','R2']:host.edit('transform',{'ref':ref,'angle':90})
+        host.edit('copy',{'ref':'R1','new_ref':'R3','x':600,'y':400})
+        assert all(abs(v-round(v))<1e-4 for c in host.call('components')['components'] for v in c['transform'][4:])
+        host.edit('remove',{'ref':'R3'})
+        host.export_image(str(tmp_path/'before.png'))
+        for ref in ['R1','R2']:host.edit('move',{'ref':ref,'dx':0,'dy':0})
+        host.export_image(str(tmp_path/'after.png'))
+        with Image.open(tmp_path/'before.png') as a,Image.open(tmp_path/'after.png') as b:
+            assert ImageChops.difference(a.convert('RGB'),b.convert('RGB')).getbbox() is None
+        result=host.run_analysis()
+        assert any(v['name']=='I(V1)' and abs(v['last']+.006)<1e-8 for v in result['vectors'])
+        output=tmp_path/'rotated.ms14';host.save_copy(str(output))
+        host.close();host.open_copy(str(output))
+        for wire in host.call('wires')['wires']:
+            for end,index in [('source',0),('target',-1)]:
+                assert wire['points'][index]=={k:wire[end][k] for k in ('x','y')}
+    finally:host.close()
 
 
 @pytest.fixture

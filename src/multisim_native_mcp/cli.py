@@ -33,9 +33,11 @@ def codex_document(text: str, entry: dict) -> str:
     return tomlkit.dumps(document)
 
 
-def configure(path: Path, entry: dict) -> dict:
-    original = path.read_text(encoding="utf-8") if path.exists() else ""
-    result = codex_document(original, entry)
+def configure(path: Path, entry: dict, client: str = 'codex') -> dict:
+    from .dsh_config import dsh_document
+    original = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+    if client not in ('codex','dsh'):raise ValueError('Choose codex or dsh')
+    result = dsh_document(original,entry) if client=='dsh' else codex_document(original, entry)
     backup = None
     if original != result:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -46,10 +48,10 @@ def configure(path: Path, entry: dict) -> dict:
         temporary = path.with_name(path.name + ".multisim.tmp")
         temporary.write_text(result, encoding="utf-8", newline="\n")
         temporary.replace(path)
-    return {"config": str(path), "server": "multisim_native", "backup": str(backup) if backup else None}
+    return {"config": str(path), "client":client,"server": "multisim_native", "backup": str(backup) if backup else None}
 
 
-def doctor(install_path: str | None = None) -> dict:
+def doctor(install_path: str | None = None, connect: bool = False) -> dict:
     if install_path:
         os.environ["MULTISIM_NATIVE_INSTALL"] = str(Path(install_path).resolve())
     from .paths import DATA_DIR, RESOURCE_DIR
@@ -68,7 +70,35 @@ def doctor(install_path: str | None = None) -> dict:
         finally:
             host.close()
     report["ready"] = bool(report["resources"] and report.get("runtime", {}).get("available"))
+    if connect:
+        import asyncio
+        try:
+            report['connection']=asyncio.run(check_connection())
+        except Exception as error:report['connection']={'ready':False,'error':str(error)[:300]}
+        report['ready']=report['ready'] and report['connection']['ready']
     return report
+
+
+async def check_connection():
+    from mcp import ClientSession,types
+    from mcp.client.stdio import StdioServerParameters,stdio_client
+    from tempfile import TemporaryDirectory
+    with TemporaryDirectory(prefix='multisim-native-check-') as data_directory:
+      parameters=StdioServerParameters(command=sys.executable,args=['-m','multisim_native_mcp'],
+          env={**os.environ,'MULTISIM_NATIVE_DATA_DIR':data_directory})
+      async with stdio_client(parameters) as (reader,writer):
+        async with ClientSession(reader,writer,read_timeout_seconds=30) as session:
+            initialized=await session.initialize();names=set();cursor=None
+            while True:
+                page=await session.list_tools(params=types.PaginatedRequestParams(cursor=cursor)) if cursor else await session.list_tools()
+                names.update(tool.name for tool in page.tools)
+                cursor=page.next_cursor
+                if not cursor:break
+            result=await session.call_tool('native_runtime_status',{})
+            if result.is_error:raise RuntimeError('MCP runtime status failed')
+            runtime=result.structured_content or json.loads(result.content[0].text)
+            required={'native_runtime_status','native_create_circuit','native_open_copy','native_export_image'}
+            return {'ready':required<=names and runtime['available'],'server_version':initialized.server_info.version,'tool_count':len(names)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,24 +108,29 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("serve", help="Run the STDIO MCP server")
     check = commands.add_parser("doctor", help="Check Python, packaged resources and Multisim")
     check.add_argument("--multisim-path")
+    check.add_argument("--connect",action='store_true',help='Check the STDIO handshake, tools and runtime status')
     config = commands.add_parser("config", help="Print an MCP configuration")
-    config.add_argument("--format", choices=["json", "codex"], default="json")
+    config.add_argument("--format", choices=["json", "codex", "dsh"], default="json")
     config.add_argument("--multisim-path")
-    register = commands.add_parser("configure", help="Register the server in Codex")
+    register = commands.add_parser("configure", help="Register the server in an MCP client")
+    register.add_argument("--client",choices=['codex','dsh'],default='codex')
+    register.add_argument("--profile",default='desktop')
     register.add_argument("--config-path", type=Path)
     register.add_argument("--multisim-path")
     args = parser.parse_args(argv)
     try:
         if args.action == "config":
+            from .dsh_config import dsh_document
             entry = client_entry(args.multisim_path)
-            print(codex_document("", entry) if args.format == "codex" else json.dumps({"mcpServers": {"multisim_native": entry}}, indent=2))
+            print(dsh_document('',entry) if args.format=='dsh' else codex_document("", entry) if args.format == "codex" else json.dumps({"mcpServers": {"multisim_native": entry}}, indent=2))
             return 0
         if args.action == "configure":
-            path = args.config_path or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"
-            print(json.dumps(configure(path, client_entry(args.multisim_path)), indent=2))
+            from .dsh_config import profile_path
+            path = args.config_path or (profile_path(args.profile) if args.client=='dsh' else Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
+            print(json.dumps(configure(path, client_entry(args.multisim_path),args.client), indent=2))
             return 0
         if args.action == "doctor":
-            report = doctor(args.multisim_path)
+            report = doctor(args.multisim_path,args.connect)
             print(json.dumps(report, indent=2))
             return 0 if report["ready"] else 1
         if sys.platform != "win32" or struct.calcsize("P") != 4:

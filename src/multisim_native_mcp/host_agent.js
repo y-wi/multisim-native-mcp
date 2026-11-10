@@ -186,6 +186,7 @@ function ensureWirePen(object,preferred) {
   native('Od101dll.dll','?SetPen@CODFullGraphic@@UAEXPAVCPen@@@Z','void',['pointer','pointer'])(graphic,pen);
 }
 function save(args) {
+  synchronizeGraphics();
   const p=project(),value=pathString(args.path),error=Memory.alloc(4);error.writeS32(0);
   const symbol=Process.getModuleByName('DrwEngine.dll').enumerateExports().find(e=>e.name.startsWith('?SaveProjectDocument@CProject'));
   const result=new NativeFunction(symbol.address,'int',['pointer','pointer','pointer','uint8','pointer','uint8','uint8'],'thiscall')(p.proj,value,ptr(0),0,error,0,0);

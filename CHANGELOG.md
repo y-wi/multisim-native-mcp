@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Add DeepSeek Harness profile installation and configuration export.
+- Update existing MCP entries without duplicating connections; preserve profile settings and comments.
+- Reuse compatible installed environments and verify the STDIO connection.
+- Align rotated and copied symbol graphics with their electrical pins before saving and exporting.
+
 ## 0.3.0 — 2026-11-10
 
 - Install upgrades into independent environments while an existing MCP server is running.

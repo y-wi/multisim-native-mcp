@@ -11,7 +11,7 @@ def test_installed_package_stdio(tmp_path):
             async with ClientSession(reader,writer,read_timeout_seconds=30) as session:
                 initialized=await session.initialize()
                 assert initialized.server_info.name == 'multisim-native'
-                assert initialized.server_info.version == '0.3.0'
+                assert initialized.server_info.version == '0.3.1'
                 listed=await session.list_tools();names={tool.name for tool in listed.tools}
                 assert len(names)==58
                 assert {'native_attach','native_split_wire','native_save_copy','native_read_waveform'} <= names
@@ -34,3 +34,14 @@ def test_packaged_resources():
     assert (RESOURCE_DIR/'assets/blank14.3.ms14').stat().st_size > 32
     for name in ['host_agent.js','editor_agent.js','startup_agent.js']:
         assert (RESOURCE_DIR/name).stat().st_size > 100
+
+
+def test_connection_check_does_not_change_existing_experiment_records(tmp_path,monkeypatch):
+    from multisim_native_mcp.cli import check_connection
+    folder=tmp_path/'experiments';folder.mkdir()
+    record=folder/('a'*32+'.json');raw=b'{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"running"}'
+    record.write_bytes(raw)
+    monkeypatch.setenv('MULTISIM_NATIVE_DATA_DIR',str(tmp_path))
+    result=asyncio.run(check_connection())
+    assert result['tool_count']==58 and result['server_version']=='0.3.1'
+    assert record.read_bytes()==raw

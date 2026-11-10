@@ -166,6 +166,7 @@ function transformComponent(args) {
   const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(object);
   if(args.angle!==undefined)method('Od101dll.dll','?Rotate@CODGraphic@@','void',['pointer','float','float','float'])(graphic,args.angle,x,y);
   else method('Od101dll.dll','?Scale@CODGraphic@@','void',['pointer','float','float','float','float'])(graphic,args.axis==='horizontal'?-1:1,args.axis==='vertical'?-1:1,x,y);
+  method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(diagram().graph,object,0,0);
   return {ref:c.ref,before,after:matrix(object),pins:updateAttachedGeometry(c.ref,attached)};
 }
 function copyTransform(source,target,x,y) {
@@ -175,8 +176,7 @@ function copyTransform(source,target,x,y) {
   method('Od101dll.dll','??4CODTransformer@@QAEAAV0@ABV0@@Z','pointer',['pointer','pointer'])(tt,st);
   const current=matrix(target);
   const dx=Math.round(x-current[4]),dy=Math.round(y-current[5]);
-  // Even MoveComponentBy(0,0) resnaps a rotated symbol's anchor in this build.
-  if(dx||dy)method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(diagram().graph,target,dx,dy);
+  method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(diagram().graph,target,dx,dy);
 }
 function routeWire(args) {
   const w=wires().wires.find(w=>w.id===args.id);if(!w)throw new Error('Wire ID does not exist');
@@ -506,6 +506,7 @@ function reconnectWire(args) {
   removeObject({id:old.id});return connectEndpoint({source,target,points:args.points});
 }
 function exportImage(args) {
+  synchronizeGraphics();
   const path=pathString(args.path);
   const sheet=diagram().sheet;
   // CDrwSubSheet's exported implementation is a false-returning stub. Slot 350 is
@@ -513,6 +514,15 @@ function exportImage(args) {
   const ok=new NativeFunction(sheet.readPointer().add(350*4).readPointer(),'uint8',['pointer','pointer'],'thiscall')(sheet,path);
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(path);
   if(!ok)throw new Error('Native image exporter failed');return {path:args.path};
+}
+function synchronizeGraphics() {
+  const repaired=[];
+  for(const c of components().components) {
+    if(!c.transform.slice(4).some(v=>Math.abs(v-Math.round(v))>0.0001))continue;
+    const moved=move({ref:c.ref,dx:0,dy:0});
+    repaired.push({ref:c.ref,before:moved.before,after:moved.after});
+  }
+  return {repaired};
 }
 function netlist() {
   const firstError=nativeErrorLog.length;
@@ -597,7 +607,7 @@ function componentBounds() {
   })};
 }
 const editorHandlers={
-  componentBounds,
+  componentBounds,synchronizeGraphics,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
   parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,sheets:readSheets,
   electricalPorts:args=>{
