@@ -25,6 +25,12 @@ TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect'
                     'createSheet','createSubcircuit','createPort','rename'}
 
 
+class NativeEditError(RuntimeError):
+    def __init__(self, message, details):
+        super().__init__(message)
+        self.details = {'error': message, **details}
+
+
 class ExistingProcess:
     """Read-only process lifetime handle. Deliberately has no terminate/kill methods."""
     def __init__(self, pid):
@@ -85,17 +91,28 @@ class EditorService(NativeHost):
     def edit(self, operation, args=None):
         return self.batch([{'operation':operation,'arguments':args or {}}])['results'][0]
 
-    def batch(self, operations, include_state=False):
+    def batch(self, operations, include_state=False, atomic=True):
         if not 1<=len(operations)<=100: raise ValueError('Provide 1 to 100 edit operations')
         for op in operations:
             if op.get('operation') not in MUTATIONS or not isinstance(op.get('arguments',{}),dict):
                 raise ValueError('Unsupported edit operation: '+str(op.get('operation')))
             self.validate(op['operation'],op.get('arguments',{}))
         with self.lock:
+            # Resolve the first existing target before saving or reopening anything.
+            first=operations[0]
+            if first['operation'] in {'move','moveLabel','transform','copy','remove','setParameter','setModelText','rename','replace'} and first.get('arguments',{}).get('ref'):
+                target=first['arguments']['ref'];components=self.call('components')['components']
+                matches=[c for c in components if target in (c['ref'],c['id'])] or [c for c in components if target==c.get('local_ref')]
+                if len(matches)!=1:
+                    state=self.call('circuitState',{'include_parameters':True})
+                    raise NativeEditError(f'Component {target!r} must identify one component on the selected sheet; found {len(matches)}. Available references: {[c["ref"] for c in components]}',
+                        {'rolled_back':False,'handles_invalidated':False,'completed_operations':0,'state':state})
             before=self.checkpoint()
+            step_before=before
             try:
                 results=[]
-                for op in operations:
+                for index,op in enumerate(operations):
+                    if not atomic and index:step_before=self.checkpoint()
                     # The component factory can inspect the whole electrical graph during replacement.
                     # Reopen its native checkpoint first when prior edits changed that graph.
                     if op['operation']=='replace' and self.topology_dirty:
@@ -115,16 +132,25 @@ class EditorService(NativeHost):
                             result['sheet_id']=next(s['id'] for s in result['sheets'] if s['title']==op['arguments']['title'])
                             result.pop('block',None);result['handles_invalidated']=True
             except Exception as error:
-                try: self.restore(before)
+                try: self.restore(before if atomic else step_before)
                 except Exception as recovery:
                     raise RuntimeError(f'Edit failed ({error}); recovery failed ({recovery}); checkpoint: {before["path"]}') from error
-                raise RuntimeError(f'Edit failed and was rolled back: {error}') from error
+                if not atomic and results:
+                    self.undo_stack.append(before);self.redo_stack.clear()
+                state=self.call('circuitState',{'include_parameters':True})
+                message=f'Edit operation {index+1}/{len(operations)} ({op["operation"]}) failed: {str(error).splitlines()[0]}. ' + ('The entire batch was rolled back; earlier calls are preserved.' if atomic else 'Only the failed operation was rolled back; completed operations are preserved.')
+                raise NativeEditError(message,{'rolled_back':True,'rollback_scope':'batch' if atomic else 'failed_operation',
+                    'failed_operation_index':index,'completed_operations':0 if atomic else len(results),'handles_invalidated':True,
+                    'rollback_checkpoint':(before if atomic else step_before)['path'],'state':state}) from error
             self.undo_stack.append(before); self.redo_stack.clear()
             return {'results':results,'undo_depth':len(self.undo_stack),'rollback_checkpoint':before['path'],
                     **({'state':self.call('circuitState',{'include_parameters':True})} if include_state else {})}
 
     @staticmethod
     def validate(op,args):
+        if op=='place':
+            if args.get('anchor','origin') not in ('origin','center','pin'):raise ValueError('Placement anchor must be origin, center or pin')
+            if args.get('anchor')=='pin' and not isinstance(args.get('pin'),str):raise ValueError('Placement with anchor=pin requires the exact pin name')
         if op=='place' and 'parameters' in args:
             if not isinstance(args['parameters'],list) or len(args['parameters'])>256:raise ValueError('Provide at most 256 component parameters')
             for parameter in args['parameters']:
@@ -176,13 +202,14 @@ class EditorService(NativeHost):
         if path.exists() and not overwrite: raise FileExistsError('Output already exists')
         return path.resolve()
 
-    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18):
+    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18,show_frame=False,show_grid=False):
         if not isinstance(dpi,int) or not 36<=dpi<=600 or not math.isfinite(scale) or not .1<=scale<=8:
             raise ValueError('Require 36 to 600 DPI and scale 0.1 to 8')
         factor=dpi/96*scale
         if not .1<=factor<=10:raise ValueError('Combined DPI/scale must be 0.1 to 10 times native size')
         if not isinstance(padding,int) or not 0<=padding<=1000:raise ValueError('Padding must be 0 to 1000 sheet units')
         if region is not None and fit_content:raise ValueError('Choose region or fit_content')
+        if not isinstance(show_frame,bool) or not isinstance(show_grid,bool):raise ValueError('show_frame and show_grid must be boolean')
         with self.lock:
             path=self.output_path(output_path,{'.png','.bmp'},overwrite)
             self.call('synchronizeGraphics')
@@ -200,13 +227,24 @@ class EditorService(NativeHost):
                 if state['components'] and all(c['bounds']['right']<0 or c['bounds']['bottom']<0 or c['bounds']['left']>width or c['bounds']['top']>height for c in state['components']):
                     raise ValueError('Circuit is outside the page; use fit_content=true, an explicit region, or resize the sheet')
             if math.ceil(width*factor)*math.ceil(height*factor)>32000000:raise ValueError('Export exceeds 32 million pixels')
+            requested_region=region or page['bounds']
+            # The native bitmap exporter always draws sheet coordinates along its
+            # viewport boundary. Render a gutter outside the requested region so
+            # removing that synthetic frame never removes real circuit content.
+            gutter=0 if show_frame else 36
+            render_region={k:v+(-gutter if k in ('left','top') else gutter) for k,v in requested_region.items()} if gutter else region
+            if math.ceil((width+2*gutter)*factor)*math.ceil((height+2*gutter)*factor)>32000000:
+                raise ValueError('Native export including frame gutter exceeds 32 million pixels; reduce DPI, scale or region size')
             intermediate=self.folder()/('native-image-'+uuid.uuid4().hex+'.bmp')
-            self.call('exportImage',{'path':str(intermediate),'render_scale':factor,**({'region':region} if region else {})})
+            self.call('exportImage',{'path':str(intermediate),'render_scale':factor,'show_frame':show_frame,'show_grid':show_grid,**({'region':render_region} if render_region else {})})
             with Image.open(intermediate) as image:
+                if gutter:
+                    offset=round(gutter*factor)
+                    image=image.crop((offset,offset,offset+round(width*factor),offset+round(height*factor)))
                 image.save(path,format='PNG' if path.suffix.lower()=='.png' else 'BMP',dpi=(dpi,dpi))
                 size=image.size
             return {'path':str(path),'width':size[0],'height':size[1],'bytes':path.stat().st_size,
-                    'dpi':dpi,'scale':scale,'region':region or page['bounds'],'off_page_components':off_page,
+                    'dpi':dpi,'scale':scale,'region':region or page['bounds'],'off_page_components':off_page,'show_frame':show_frame,'show_grid':show_grid,
                     'source':'native schematic image renderer'}
 
     def run_analysis(self, analysis='op', step=1e-5, stop=0.01, use_initial_conditions=False,

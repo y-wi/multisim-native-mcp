@@ -10,6 +10,10 @@ Coordinates use **sheet units**, with a top-left origin and 96 units per inch. R
 
 坐标使用**图纸单位**，原点在左上角，每英寸 96 单位。放置前读取 `page.width`、`page.height` 和 `page.bounds`。附带的空白图纸为 960 × 720，打印纸尺寸单独返回。导线顶点和引脚位置使用同一套坐标。
 
+Placement defaults to the library graphic `anchor: origin`, which can be offset from both the symbol body and its pins. Use `anchor: center` for the body center, or `anchor: pin` with an exact `pin` name to place that connector at the requested coordinates. The result's `placement` includes requested and actual anchor positions, graphic origin and body bounds. Read returned pins before routing because grid snapping applies.
+
+放置默认使用元件库图形原点 `anchor: origin`，该点可能既不是符号中心，也不是引脚。可选择 `anchor: center` 按符号主体中心放置，或使用 `anchor: pin` 配合准确的 `pin` 名称按引脚放置。结果中的 `placement` 提供请求位置、实际锚点、图形原点与主体边界。网格吸附可能调整位置，布线必须读取返回的真实引脚坐标。
+
 ## Components and parameters / 元件与参数
 
 `native_search_library` returns `Family_Name` and `Group_Name`. Filter by exact `family` and `group` names. For an adjustable resistor, search `RESISTOR_VIRTUAL` in family `RESISTOR`. Placement returns the actual model, native reference prefix and indexed parameters. Primary parameters include a name, unit and `role: value`.
@@ -38,6 +42,10 @@ Use `native_edit_batch` to place components, set their values and connect named 
 
 网表检查仅在拓扑改变时刷新连接。`handles_invalidated` 为 true 时，直接使用返回的 `state` 获取新句柄；参数、标签和几何编辑保留句柄。后续编辑优先使用元件参考号。
 
+Batch edits are atomic by default: a failed operation rolls back that batch while preserving earlier calls. Set `atomic: false` to keep completed operations and roll back only the failed operation. An edit failure reports `rollback_scope`, `completed_operations`, `handles_invalidated` and fresh `state`. Invalid first-operation references fail before creating a checkpoint and keep handles intact.
+
+批量编辑默认具有原子性：失败时回滚本批，保留之前调用的修改。设置 `atomic: false` 可保留本批已完成操作，只回滚失败步骤。编辑错误会返回回滚范围、保留操作数、句柄失效状态与最新 `state`。首步引用名错误会在创建检查点前被发现，保留现有句柄。
+
 ## Saved sheet layout / 保存图纸布局
 
 Before saving a finished schematic, check that `content_bounds` lies inside `page.bounds` with a margin. Include symbols, labels, text and wire routes. Move the complete layout inside the page, or enlarge the real sheet through `native_edit_batch` with a `sheetSize` operation:
@@ -58,6 +66,10 @@ Choose dimensions from actual content bounds; enlarging width and height does no
 
 图片由原生引擎按指定 DPI 渲染，`dpi` 范围为 36–600，`scale` 可继续调整倍率。`fit_content: true` 配合 `padding` 可完整导出电路及图纸外对象；也可指定绝对图纸坐标区域：
 
+Export defaults to a clean circuit image. Set `show_frame: true` to include the sheet border and title block, or `show_grid: true` to include the dot grid. Export restores the original display settings.
+
+默认导出纯电路图片；设置 `show_frame: true` 可显示图框及标题栏，`show_grid: true` 可显示点阵网格。导出结束后恢复原显示设置。
+
 ```json
 {
   "output_path": "C:/Circuits/divider.png",
@@ -70,9 +82,9 @@ Choose either `region` or `fit_content`. Export leaves component positions, conn
 
 `region` 与 `fit_content` 二选一。导出保持元件位置、连接和图纸尺寸，最大图片为 3200 万像素。整页导出会返回页外元件引用；所有元件均在页外时会提示改用适配内容或区域导出。
 
-Move an overlapping reference label with `native_move_component_label(component_ref, x, y)`. Coordinates specify the label's center. Read label bounds from `state.components[].labels`; the symbol and electrical pins remain at their existing positions.
+Move a reference or value label with `native_move_component_label(component_ref, x, y, kind)`, where `kind` is `reference` (default) or `value`. Coordinates specify the label's center. Read label text and bounds from `state.components[].labels`; the symbol and electrical pins remain at their existing positions. Parameter edits refresh native value text immediately, and rotation keeps labels upright and clear of the symbol body.
 
-参考号重叠时，使用 `native_move_component_label(component_ref, x, y)` 移动标签中心。标签边界位于 `state.components[].labels`，元件符号和电气引脚保持原位。
+使用 `native_move_component_label(component_ref, x, y, kind)` 可移动标签中心，`kind` 为 `reference`（默认参考号）或 `value`（数值）。标签文字和边界位于 `state.components[].labels`，元件符号和电气引脚保持原位。参数修改会立即刷新原生值标签；旋转后标签保持正向，并避开符号主体。
 
 ## Numeric results / 数值结果
 

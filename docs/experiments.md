@@ -17,13 +17,17 @@ Pass the returned `raw_path` to `native_measure_waveform` or `native_verify_wave
     {"id": "phase", "metric": "phase_deg", "signal": "V(2)", "reference": "V(1)", "frequency_hz": 159.1549430918953}
   ],
   "criteria": [
-    {"measurement": "gain", "target": -3.0103, "absolute_tolerance": 0.01},
-    {"measurement": "phase", "min": -45.1, "max": -44.9}
+    {"id": "gain", "target": -3.0103, "absolute_tolerance": 0.01},
+    {"id": "phase", "min": -45.1, "max": -44.9}
   ]
 }
 ```
 
 Real-waveform metrics: `min`, `max`, `mean`, `rms`, `peak_to_peak`, `frequency`, `duty_cycle`. Use `start` and `stop` for a time window, and `threshold` for crossing measurements. Duty cycle is a fraction from 0 to 1. Mean and RMS integrate the actual adaptive time grid. AC transfer measurements interpolate complex samples at `frequency_hz`.
+
+Measurements and acceptance criteria both use `id` to identify a metric. The legacy criterion key `measurement` remains accepted. Tool schemas expose the nested fields, and malformed requests report the failing field before waveform processing or simulation.
+
+测量与验收条件统一使用 `id` 标识指标，兼容旧的条件字段 `measurement`。工具 schema 提供嵌套字段定义；格式错误会在读取波形或开始仿真前指出具体字段。
 
 实数波形支持极值、均值、RMS、峰峰值、频率和占空比。`start`、`stop` 指定时间窗口，`threshold` 指定阈值；占空比取值 0 至 1。均值和 RMS 按实际采样时间积分，AC 增益与相位按复数样本插值。
 
@@ -42,7 +46,7 @@ Use `native_run_parameter_sweep` for a synchronous persisted experiment, or `nat
   "parameters": [{"ref": "R1", "index": 1, "values": [500, 1000, 2000]}],
   "analysis": {"analysis": "ac", "ac_sweep": "lin", "ac_points": 3, "ac_start": 159.1549430918953, "ac_stop": 477.464829275686},
   "measurements": [{"id": "gain", "metric": "gain_db", "signal": "V(2)", "reference": "V(1)", "frequency_hz": 159.1549430918953}],
-  "criteria": [{"measurement": "gain", "min": -5}],
+  "criteria": [{"id": "gain", "min": -5}],
   "objective": {"measurement": "gain", "goal": "target", "target": -3.0103}
 }
 ```

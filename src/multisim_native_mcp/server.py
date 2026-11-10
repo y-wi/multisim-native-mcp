@@ -6,9 +6,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 from functools import wraps
 from pathlib import Path
 import re
-from .service import EditorService
+import json
+from typing import Literal
+from .service import EditorService,NativeEditError
+from mcp.types import CallToolResult,TextContent
 from .jobs import ExperimentManager
 from . import __version__
+from .contracts import MeasurementRequest,AcceptanceCriterion,normalize_measurements,normalize_criteria
 
 host = EditorService()
 experiments = ExperimentManager(host)
@@ -23,6 +27,9 @@ def checked(function):
                 'native_read_waveform','native_measure_waveform','native_verify_waveform','native_decode_seven_segment'}:
                 raise RuntimeError('A native experiment is running; inspect or cancel it first')
             return function(*args, **kwargs)
+        except NativeEditError as error:
+            return CallToolResult(isError=True,structuredContent=error.details,
+                content=[TextContent(type='text',text=json.dumps(error.details,ensure_ascii=False))])
         except Exception as error:
             raise ToolError(str(error)) from error
     return execute
@@ -75,9 +82,9 @@ def native_get_circuit_state(include_parameters: bool = True) -> dict:
 
 @server.tool()
 @checked
-def native_move_component_label(component_ref: str,x: int,y: int) -> dict:
-    """Move the native reference label center to absolute sheet coordinates without moving its symbol, pins or wires. The result includes actual label bounds."""
-    return host.edit('moveLabel',{'ref':component_ref,'x':x,'y':y})
+def native_move_component_label(component_ref: str,x: int,y: int,kind: Literal['reference','value'] = 'reference') -> dict:
+    """Move the reference or value label center to absolute sheet coordinates without moving its symbol, pins or wires. Read labels with kind/text/bounds from circuit state."""
+    return host.edit('moveLabel',{'ref':component_ref,'x':x,'y':y,'kind':kind})
 
 
 @server.tool()
@@ -145,9 +152,10 @@ def native_search_library(query: str, limit: int = 20, family: str = '', group: 
 
 @server.tool()
 @checked
-def native_place_component(name: str, x: int, y: int, reference: str | None = None, family: str = '', group: str = '', manufacturer: str = '',parameters: list[dict] | None = None) -> dict:
-    """Place a real library component, including its native symbol, named pins, simulation model and parameters. Use an exact search result name."""
-    args={'name':name,'x':x,'y':y,'family':family,'group':group,'manufacturer':manufacturer}
+def native_place_component(name: str, x: int, y: int, reference: str | None = None, family: str = '', group: str = '', manufacturer: str = '',parameters: list[dict] | None = None,anchor: Literal['origin','center','pin'] = 'origin',pin: str | None = None) -> dict:
+    """Place a real library component. anchor=origin preserves the library graphic origin (not symbol center); center anchors the symbol body, pin anchors the exact named pin. Placement returns requested/actual anchor coordinates and body bounds; grid snapping applies. Read returned pins before routing."""
+    args={'name':name,'x':x,'y':y,'family':family,'group':group,'manufacturer':manufacturer,'anchor':anchor}
+    if pin is not None:args['pin']=pin
     if parameters is not None:args['parameters']=parameters
     if reference is not None: args['ref']=reference
     return host.edit('place',args)
@@ -306,9 +314,9 @@ def native_list_projects() -> dict:
 
 @server.tool()
 @checked
-def native_edit_batch(operations: list[dict], include_state: bool = True) -> dict:
-    """Apply 1-100 edits as one undo unit. Each item has operation and arguments. Allowlist: wire, move, place, copy, remove, transform, route, setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet, sheetSize. sheetSize takes width and height in native pixels, 96-8192. Any failure restores a native checkpoint; reread volatile IDs afterward."""
-    return host.batch(operations,include_state)
+def native_edit_batch(operations: list[dict], include_state: bool = True, atomic: bool = True) -> dict:
+    """Apply 1-100 edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (width/height 96-8192 sheet units)."""
+    return host.batch(operations,include_state,atomic)
 
 
 @server.tool()
@@ -376,20 +384,23 @@ def native_read_waveform(raw_path: str, offset: int = 0, limit: int = 1000, plot
 
 @server.tool()
 @checked
-def native_measure_waveform(raw_path: str, measurements: list[dict]) -> dict:
+def native_measure_waveform(raw_path: str, measurements: list[MeasurementRequest]) -> dict:
     """Measure native RAW samples. Each request has id, metric, signal; optional start/stop, threshold. Metrics: min, max, mean, rms, peak_to_peak, frequency, duty_cycle; AC gain_db/phase_deg need reference and frequency_hz."""
     from .waveforms import parse_raw
     from .measurements import measure
+    measurements=normalize_measurements(measurements)
     return {'raw_path':raw_path,'measurements':measure(parse_raw(Path(raw_path)),measurements)}
 
 
 @server.tool()
 @checked
-def native_verify_waveform(raw_path: str, measurements: list[dict], criteria: list[dict]) -> dict:
-    """Measure RAW data and check criteria by measurement ID, with min/max or target plus absolute_tolerance/relative_tolerance."""
+def native_verify_waveform(raw_path: str, measurements: list[MeasurementRequest], criteria: list[AcceptanceCriterion]) -> dict:
+    """Measure RAW data and check criteria using the same id field as measurements. The legacy criterion key measurement is accepted. Specify min/max or target plus absolute_tolerance/relative_tolerance; malformed requests fail before reading the waveform."""
     from .waveforms import parse_raw
     from .measurements import measure
     from .verification import verify
+    measurements=normalize_measurements(measurements)
+    criteria=normalize_criteria(criteria,{m['id'] for m in measurements})
     values=measure(parse_raw(Path(raw_path)),measurements)
     return {'raw_path':raw_path,'measurements':values,**verify(values,criteria)}
 
@@ -409,17 +420,21 @@ def native_decode_seven_segment(raw_path: str, digits: list[dict], expected: str
 
 @server.tool()
 @checked
-def native_run_parameter_sweep(parameters: list[dict], analysis: dict, measurements: list[dict],
-        criteria: list[dict] | None = None, objective: dict | None = None) -> dict:
+def native_run_parameter_sweep(parameters: list[dict], analysis: dict, measurements: list[MeasurementRequest],
+        criteria: list[AcceptanceCriterion] | None = None, objective: dict | None = None) -> dict:
     """Run up to 100 native trials. Parameters: {ref,index,values}; analysis uses native run options. Constraints use measurement IDs. Optional objective: {measurement,goal:min|max|target,target}. Restore the original circuit after all trials; return feasible candidates and best index."""
+    measurements=normalize_measurements(measurements)
+    criteria=normalize_criteria(criteria or [],{m['id'] for m in measurements},allow_empty=True)
     return experiments.start(parameters,analysis,measurements,criteria,objective,background=False)
 
 
 @server.tool()
 @checked
-def native_start_experiment(parameters: list[dict], analysis: dict, measurements: list[dict],
-        criteria: list[dict] | None = None, objective: dict | None = None) -> dict:
+def native_start_experiment(parameters: list[dict], analysis: dict, measurements: list[MeasurementRequest],
+        criteria: list[AcceptanceCriterion] | None = None, objective: dict | None = None) -> dict:
     """Start a persisted background parameter experiment. Circuit edits are locked until completion or cancellation. Query with its ID."""
+    measurements=normalize_measurements(measurements)
+    criteria=normalize_criteria(criteria or [],{m['id'] for m in measurements},allow_empty=True)
     return experiments.start(parameters,analysis,measurements,criteria,objective)
 
 
@@ -491,9 +506,9 @@ def native_auto_route_wire(wire_id: str, clearance: int = 9) -> dict:
 
 @server.tool()
 @checked
-def native_export_image(output_path: str, overwrite: bool = False,dpi: int = 96,scale: float = 1.,region: dict[str,int] | None = None,fit_content: bool = False,padding: int = 18) -> dict:
-    """Render PNG/BMP natively at 36-600 DPI with optional scale. Choose region {left,top,right,bottom} in sheet units or fit_content with padding. Cropping does not resize the saved sheet: verify saved page containment with a whole-page export first. Includes off-page content without moving the circuit; at most 32 million pixels."""
-    return host.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding)
+def native_export_image(output_path: str, overwrite: bool = False,dpi: int = 96,scale: float = 1.,region: dict[str,int] | None = None,fit_content: bool = False,padding: int = 18,show_frame: bool = False,show_grid: bool = False) -> dict:
+    """Render PNG/BMP natively at 36-600 DPI. Default is a clean circuit image; show_frame enables sheet border/title block, show_grid enables the dot grid. Rendering restores display preferences. Choose region or fit_content for cropping; cropping does not resize the saved sheet. At most 32 million pixels."""
+    return host.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding,show_frame,show_grid)
 
 
 def main():

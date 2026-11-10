@@ -16,6 +16,8 @@ Here index 1 applies specifically to `RESISTOR_VIRTUAL`. Its index 0 is a model 
 
 `native_edit_batch` takes 1–100 operations as one undo unit. Operations run in order; failure restores the checkpoint. Batch arguments use native operation keys, which differ from standalone tool parameter names:
 
+By default `atomic: true` rolls back this entire batch on failure. Choose `atomic: false` to preserve completed steps and restore only the failing operation. Earlier calls remain committed in either mode. Error results contain the rollback scope, preserved step count, handle invalidation flag and fresh state; consume these before another edit. A first-operation target lookup failure keeps handles intact.
+
 ```json
 {
   "operations": [
@@ -33,11 +35,11 @@ Common batch operations:
 
 | Operation | Arguments |
 | --- | --- |
-| `place` | `name, ref, x, y`, optional `family, group, manufacturer, parameters` |
+| `place` | `name, ref, x, y`, optional `family, group, manufacturer, parameters, anchor, pin` |
 | `setParameter` | `ref, index`, exactly one of `value, expression` |
 | `wire`, `connectEndpoint` | `source, target`, optional `points` for `connectEndpoint` |
 | `move` | `ref, dx, dy` (relative displacement) |
-| `moveLabel` | `ref, x, y` (absolute label center) |
+| `moveLabel` | `ref, x, y`, optional `kind: reference | value` (absolute label center) |
 | `transform` | `ref, angle` (multiples of 90), or `ref, axis` (`horizontal` / `vertical`) |
 | `route` | `id, points` |
 | `rename` | `ref, new_ref` |
@@ -91,6 +93,8 @@ Example whole-page arguments for `native_export_image` after the saved-sheet che
 ```
 
 Use an existing absolute output directory. PNG and BMP are supported. `dpi` is 36–600, `scale` applies additional scaling, and the pixel budget is 32 million. Rendering uses the native engine and leaves the schematic geometry unchanged.
+
+Default `show_frame: false` and `show_grid: false` produce a clean report image. Set `show_frame: true` for sheet border/title block, and `show_grid: true` for the dot grid. These choices are temporary rendering options; the original display settings are restored.
 
 For a detail image, use `fit_content: true` with optional `padding`, or `region: {"left":100,"top":80,"right":700,"bottom":500}` in absolute sheet units. `region` and `fit_content` are mutually exclusive. If a whole-page image omits circuit content, repair the saved sheet before accepting the schematic deliverable; a cropped export alone only fixes the image framing.
 

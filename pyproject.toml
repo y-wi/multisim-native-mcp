@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "multisim-native-mcp"
-version = "0.3.2"
+version = "0.3.3"
 description = "Native Multisim circuit editing and analog analysis through Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

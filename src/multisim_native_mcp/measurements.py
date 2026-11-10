@@ -3,6 +3,7 @@ import bisect
 import cmath
 import math
 from .waveforms import numeric, signal_index
+from .contracts import normalize_measurements
 
 
 def finite(value):
@@ -33,7 +34,7 @@ def series(data,signal,start=None,stop=None):
 
 
 def measure(data,requests):
-    if not isinstance(requests,list) or not 1<=len(requests)<=100:raise ValueError('Provide 1 to 100 measurements')
+    requests=normalize_measurements(requests)
     results=[];ids=set()
     for n,request in enumerate(requests):
         metric=request['metric'];signal=request['signal'];identifier=request.get('id',str(n))

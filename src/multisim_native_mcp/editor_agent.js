@@ -79,7 +79,8 @@ function setParameter(args) {
     method('CIRCEXP.dll','?SetExprParam@CiaParamList@@','uint8',['pointer','int','pointer','int'])(attr,args.index,text,1);
     native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(text);
   }
-  return {before,after:parameterInfo(args)};
+  const labels=refreshComponentValue(c.id,true);
+  return {before,after:parameterInfo({ref:c.id}),labels};
 }
 function replaceComponent(args) {
   const old=component(args.ref),attached=wires().wires.filter(w=>w.source.ref===old.ref||w.target.ref===old.ref);
@@ -169,7 +170,10 @@ function transformComponent(args) {
   if(args.angle!==undefined)method('Od101dll.dll','?Rotate@CODGraphic@@','void',['pointer','float','float','float'])(graphic,args.angle,x,y);
   else method('Od101dll.dll','?Scale@CODGraphic@@','void',['pointer','float','float','float','float'])(graphic,args.axis==='horizontal'?-1:1,args.axis==='vertical'?-1:1,x,y);
   method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(diagram().graph,object,0,0);
-  return {ref:c.ref,before,after:matrix(object),pins:updateAttachedGeometry(c.ref,attached)};
+  refreshComponentValue(c.id,false);
+  straightenComponentLabels(c.id);
+  arrangeComponentLabels(c.id);
+  return {ref:c.ref,before,after:matrix(object),pins:updateAttachedGeometry(c.ref,attached),labels:componentLabels({ref:c.id}).labels};
 }
 function copyTransform(source,target,x,y) {
   const graphic=object=>method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(object);
@@ -348,16 +352,25 @@ function generateRecord(record,args) {
   while(others.some(p=>p.ref===stem+suffix))suffix++;
   const ref=args.ref||(!others.some(p=>p.ref===c.local_ref)?c.local_ref:stem+suffix);
   if(c.ref!==ref)renameComponent({ref:c.id,new_ref:ref});
-  const origin=matrix(object);
-  method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(d.graph,object,Math.round(args.x-origin[4]),Math.round(args.y-origin[5]));
+  const origin=matrix(object),anchor=args.anchor||'origin';
+  let point={x:origin[4],y:origin[5]};
+  if(anchor==='pin'){
+    point=c.pins.find(p=>p.name===args.pin);
+    if(!point)throw new Error('Placement anchor pin not found: '+args.pin+'; available pins: '+c.pins.map(p=>p.name).join(', '));
+  }else if(anchor==='center'){
+    const b=symbolBodyBounds(c);point={x:(b.left+b.right)/2,y:(b.top+b.bottom)/2};
+  }
+  method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(d.graph,object,Math.round(args.x-point.x),Math.round(args.y-point.y));
   for(const parameter of args.parameters||[])setParameter({ref:c.id,...parameter});
   c=component(object.toString());
   const metadata=parameterInfo({ref:c.id});
-  const page=pageGeometry(),offPage=args.x<0||args.y<0||args.x>page.width||args.y>page.height;
+  const body=symbolBodyBounds(c),actual=anchor==='pin'?c.pins.find(p=>p.name===args.pin):anchor==='center'?{x:(body.left+body.right)/2,y:(body.top+body.bottom)/2}:{x:c.transform[4],y:c.transform[5]};
+  const placement={anchor,...(anchor==='pin'?{pin:args.pin}:{}),requested:{x:args.x,y:args.y},actual:{x:actual.x,y:actual.y},origin:{x:c.transform[4],y:c.transform[5]},body_bounds:body};
+  const page=pageGeometry(),offPage=body.left<0||body.top<0||body.right>page.width||body.bottom>page.height;
   const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page; move the circuit inside or resize the sheet before saving. Image fit_content changes export framing only.'}]:[];
   for(const p of metadata.parameters)if(p.role==='value'&&p.value===null&&!p.expression?.trim())warnings.push({code:'unset_value',reference:c.ref,index:p.index,name:p.name,message:'Set the primary component value before analysis.'});
   return {component:{...c,library:{family:metadata.info[0],name:metadata.info[1],symbol_family:metadata.info[2],model:metadata.info[3]},default_reference_prefix:stem},parameters:metadata.parameters,page,
-    warnings};
+    placement,warnings};
 }
 function allocateObject(className,constructor,args,types) {
   const type=method('Od101dll.dll','?GetThisClass@'+className+'@@','pointer',[],'stdcall')();
@@ -541,12 +554,18 @@ function exportImage(args) {
   synchronizeGraphics();
   const d=diagram(),before=pageGeometry(),region=args.region||{left:0,top:0,right:before.width,bottom:before.height};
   const prefs=new NativeFunction(d.graph.readPointer().add(0x5c).readPointer(),'pointer',['pointer'],'thiscall')(d.graph);
+  const displayKeys={'Bounds ON':args.show_frame===true,'Border ON':args.show_frame===true,'Title Block ON':args.show_frame===true,'Simplified Title Block ON':args.show_frame===true,'Grid ON':args.show_grid===true,'Simplified Grid ON':args.show_grid===true},displayBefore={};
+  const setPreference=(key,value)=>{const name=pathString(key),text=pathString(String(value));method('PREFS.dll','?SetPrefsAsString@CIITCircuitPrefs@@','uint8',['pointer','pointer','pointer'])(prefs,name.readPointer(),text.readPointer());};
   const setSize=(w,h)=>{for(const [key,value] of Object.entries({'Sheet Width':w,'Sheet Height':h,'Sheet Width In Inch':w/96,'Sheet Height In Inch':h/96})) {
     const name=pathString(key),text=pathString(String(value));method('PREFS.dll','?SetPrefsAsString@CIITCircuitPrefs@@','uint8',['pointer','pointer','pointer'])(prefs,name.readPointer(),text.readPointer());
   }};
   const root=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(d.composite);
   let bitmap=ptr(0),translated=false;
   try {
+    for(const [key,enabled] of Object.entries(displayKeys)){
+      const name=pathString(key),out=Memory.alloc(8);out.writeDouble(0);
+      if(method('PREFS.dll','?GetPrefsAsDouble@CPreferences@@','uint8',['pointer','pointer','pointer'])(prefs,name.readPointer(),out)){displayBefore[key]=out.readDouble();setPreference(key,enabled?1:0);}
+    }
     if(args.region){setSize(region.right-region.left,region.bottom-region.top);method('Od101dll.dll','?Translate@CODGraphic@@','void',['pointer','float','float'])(root,-region.left,-region.top);translated=true;}
     bitmap=method('SCH_CAP.dll','?WriteCircuitImageToBitmap@CSCH_CAPSubSheet@@','pointer',['pointer','pointer','uint8','double'])(d.sheet,treeInstance(),0,(args.render_scale||1)*100);
     if(bitmap.isNull())throw new Error('Native bitmap renderer failed');
@@ -568,6 +587,7 @@ function exportImage(args) {
     if(!bitmap.isNull())new NativeFunction(bitmap.readPointer().readPointer(),'pointer',['pointer','uint'],'thiscall')(bitmap,1);
     if(translated)method('Od101dll.dll','?Translate@CODGraphic@@','void',['pointer','float','float'])(root,region.left,region.top);
     if(args.region)setSize(before.width,before.height);
+    for(const [key,value] of Object.entries(displayBefore))setPreference(key,value);
   }
 }
 function synchronizeGraphics() {
@@ -605,7 +625,8 @@ function simulationInfo() {
   const errorCount=method('SpiceifsSch.dll','?GetSpiceErrorCount@CSchSpiceSession@SpiceifsSch@@','uint',['pointer'])(session),errors=[];
   for(let n=Math.max(0,errorCount-100);n<errorCount;n++){const cmd=Memory.alloc(4),code=Memory.alloc(4);if(method('SpiceifsSch.dll','?GetSpiceError@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer','uint','pointer','pointer'])(session,n,cmd,code))errors.push({index:n,command:cmd.readS32(),code:code.readS32()});}
   const frontend=method('SHARUTIL.dll','?GetGuiFEObject@CGuiFEObj@@','pointer',[],'mscdecl')();
-  return {session:session.toString(),state:method('SCH_CAP.dll','?GetSimulationState@CMultisimExtension@@','int',['pointer'])(ext),remote_initialized:!!method('SpiceifsSch.dll','?IsSimulationInitialized@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer'])(session),status,error_count:errorCount,errors,error_text:instanceString('SHARUTIL.dll','?GetErrorString@CGuiFEObj@@',frontend)};
+  const actualErrors=errors.filter(e=>e.code!==0);
+  return {session:session.toString(),state:method('SCH_CAP.dll','?GetSimulationState@CMultisimExtension@@','int',['pointer'])(ext),remote_initialized:!!method('SpiceifsSch.dll','?IsSimulationInitialized@CSchSpiceSession@SpiceifsSch@@','uint8',['pointer'])(session),status,error_count:actualErrors.length,errors:actualErrors,native_status_record_count:errorCount,native_status_records:errors,error_text:instanceString('SHARUTIL.dll','?GetErrorString@CGuiFEObj@@',frontend)};
 }
 function simulate(args) {
   const session=simSession();
@@ -628,9 +649,9 @@ function simulate(args) {
   // Remove old circuits and plots so a failed run cannot masquerade as a previous successful result.
   const trace=[];
   const shell=(stage,command)=>{
-    const before=simulationInfo().error_count,start=Date.now();
+    const before=simulationInfo().native_status_record_count,start=Date.now();
     const result=method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(session,Memory.allocUtf16String(command));
-    const after=simulationInfo(),errors=after.errors.filter(e=>e.code!==0&&(after.error_count<before||e.index>=before));
+    const after=simulationInfo(),errors=after.native_status_records.filter(e=>e.code!==0&&(after.native_status_record_count<before||e.index>=before));
     trace.push({stage,command,result,elapsed_ms:Date.now()-start,errors});return {result,errors};
   };
   shell('clear-plots','destroy all');shell('clear-circuit','remcirc');
@@ -643,7 +664,8 @@ function simulate(args) {
   const command=args.analysis==='op'?'op':args.analysis==='ac'?`ac ${args.ac_sweep} ${args.ac_points} ${args.ac_start} ${args.ac_stop}`:`tran ${args.step} ${args.stop}${args.use_initial_conditions?' uic':''}`;
   send({analysis_started:true,command});
   const completed=shell('analysis',command);
-  return {prepared,initialize_result:initialized,sent,result:completed.result,command,trace,failed:completed.result!==0||completed.errors.length>0,stage:'analysis',...simulationInfo()};
+  const errors=trace.filter(t=>t.stage==='load-netlist'||t.stage==='analysis').flatMap(t=>t.errors);
+  return {...simulationInfo(),prepared,initialize_result:initialized,sent,result:completed.result,command,trace,failed:completed.result!==0||errors.length>0,stage:'analysis',error_count:errors.length,errors};
 }
 function simulationExport(args) {
   const session=simSession(),run=method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer']);
@@ -651,6 +673,12 @@ function simulationExport(args) {
   const result=run(session,Memory.allocUtf16String('write "'+args.path.replace(/\\/g,'/')+'" all'));
   method('SCH_CAP.dll','?SetSimulationState@CMultisimExtension@@','void',['pointer','int','uint8','uint8'])(extension(),0,0,0);
   return {ascii,result,path:args.path,...simulationInfo()};
+}
+function symbolBodyBounds(c) {
+  const rect=Memory.alloc(16);
+  method('Od101dll.dll','?GetRealBoxWithoutPins_WithBorderRect@CIITSymbolComp@@','pointer',['pointer','pointer'])(ptr(c.id),rect);
+  const [x1,y1,x2,y2]=[0,4,8,12].map(n=>rect.add(n).readS32());
+  return {left:Math.min(x1,x2),top:Math.min(y1,y2),right:Math.max(x1,x2),bottom:Math.max(y1,y2)};
 }
 function componentBounds() {
   const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
@@ -686,24 +714,64 @@ function componentLabels(args,source=null) {
   const labels=[];
   for(const child of listChildren(ptr(c.id))) {
     const type=rtti(child).name;
-    if(!/CIITSymTextCompName/.test(type))continue;
+    if(!/CIITSymTextComp(?:Name|Value)/.test(type))continue;
     const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(child),r=Memory.alloc(16);
     method('Od101dll.dll','?GetBox@CODGraphic@@QAEXAAVCRect@@AAVCODInstContext@@@Z','void',['pointer','pointer','pointer'])(graphic,r,context);
     const corners=[[r.readS32(),r.add(4).readS32()],[r.add(8).readS32(),r.add(12).readS32()]].map(([x,y])=>({x,y}));
     const bounds={left:Math.min(...corners.map(p=>p.x)),top:Math.min(...corners.map(p=>p.y)),right:Math.max(...corners.map(p=>p.x)),bottom:Math.max(...corners.map(p=>p.y))};
-    labels.push({id:child.toString(),kind:'reference',bounds,center:{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}});
+    const text=instanceString('Od101dll.dll','?GetText@CODTextComp@@',child,[treeInstance()],['pointer']);
+    labels.push({id:child.toString(),kind:/CompValue/.test(type)?'value':'reference',text,bounds,center:{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}});
   }
   return {reference:c.ref,labels};
 }
 function moveComponentLabel(args) {
-  const c=component(args.ref),labels=componentLabels(args).labels;
-  if(labels.length!==1)throw new Error('Expected one native reference label');
-  const label=labels[0],dx=args.x-label.center.x,dy=args.y-label.center.y,[a,b,d,e]=c.transform,det=a*e-b*d;
+  const c=component(args.ref),labels=componentLabels(args).labels.filter(l=>l.kind===(args.kind||'reference'));
+  if(labels.length!==1)throw new Error('Expected one native '+(args.kind||'reference')+' label');
+  const label=labels[0],dx=args.x-label.center.x,dy=args.y-label.center.y,p=c.transform,l=matrix(ptr(label.id));
+  const [a,b,d,e]=p,det=a*e-b*d;
   const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(ptr(label.id));
-  method('Od101dll.dll','?Translate@CODGraphic@@','void',['pointer','float','float'])(graphic,(e*dx-d*dy)/det,(-b*dx+a*dy)/det);
+  const transformer=method('Od101dll.dll','?GetTransformer@CODGraphic@@QAEP','pointer',['pointer'])(graphic);
+  method('Od101dll.dll','?TranslateAbs@CODTransformer@@','void',['pointer','float','float'])(transformer,l[4]+(e*dx-d*dy)/det,l[5]+(-b*dx+a*dy)/det);
   const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
   method('Od101dll.dll','?Update@CODComponent@@UAEXAAVCODInstContext@@_N@Z','void',['pointer','pointer','uint8'])(ptr(label.id),context,0);
   return componentLabels(args);
+}
+let valueTextSlot=null;
+function refreshComponentValue(ref,reflow=false) {
+  const c=component(ref),label=componentLabels({ref:c.id},c).labels.find(l=>l.kind==='value');
+  if(!label)return [];
+  if(valueTextSlot===null){
+    const mod=Process.getModuleByName('Od101dll.dll'),target=mod.enumerateExports().find(e=>e.name.startsWith('?CreateValueText@CODDiagram@@')).address;
+    const table=mod.getExportByName('??_7CODDiagram@@6B@');
+    for(let n=0;n<512;n++)if(table.add(n*4).readPointer().equals(target)){valueTextSlot=n;break;}
+    if(valueTextSlot===null)throw new Error('Native value formatter virtual method is unavailable');
+  }
+  const graph=diagram().graph,fn=new NativeFunction(graph.readPointer().add(valueTextSlot*4).readPointer(),'pointer',['pointer','pointer','pointer','uint8','uint8','pointer'],'thiscall');
+  const text=readCStringResult(out=>fn(graph,out,ptr(c.id),0,0,treeInstance()),[]);
+  const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  method('Od101dll.dll','?SetText@CODTextComp@@','void',['pointer','pointer','pointer'])(ptr(label.id),Memory.allocUtf16String(text),context);
+  method('Od101dll.dll','?Update@CODComponent@@UAEX','void',['pointer','pointer','uint8'])(ptr(label.id),context,0);
+  if(reflow)arrangeComponentLabels(c.id);
+  return componentLabels({ref:c.id}).labels;
+}
+function straightenComponentLabels(ref) {
+  const c=component(ref),[a,b,d,e]=c.transform;
+  for(const label of componentLabels({ref:c.id},c).labels){
+    const lm=matrix(ptr(label.id)),angle=Math.atan2(b*lm[0]+e*lm[1],a*lm[0]+d*lm[1])*180/Math.PI;
+    const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(ptr(label.id));
+    if(Math.abs(angle)>0.001){
+      method('Od101dll.dll','?Rotate@CODGraphic@@','void',['pointer','float','float','float'])(graphic,-angle,0,0);
+      moveComponentLabel({ref:c.id,kind:label.kind,x:label.center.x,y:label.center.y});
+    }
+  }
+}
+function arrangeComponentLabels(ref) {
+  const c=component(ref),body=symbolBodyBounds(c),labels=componentLabels({ref:c.id},c).labels.filter(l=>l.text);
+  const overlaps=(a,b)=>a.left<b.right+2&&a.right>b.left-2&&a.top<b.bottom+2&&a.bottom>b.top-2;
+  if(!labels.some(l=>overlaps(l.bounds,body))&&!labels.some((l,i)=>labels.slice(i+1).some(o=>overlaps(l.bounds,o.bounds))))return;
+  const heights=labels.map(l=>l.bounds.bottom-l.bounds.top),total=heights.reduce((a,b)=>a+b,0)+4*(labels.length-1);
+  let y=(body.top+body.bottom-total)/2;
+  labels.forEach((l,i)=>{moveComponentLabel({ref:c.id,kind:l.kind,x:body.right+9+(l.bounds.right-l.bounds.left)/2,y:y+heights[i]/2});y+=heights[i]+4;});
 }
 const editorHandlers={
   componentBounds,synchronizeGraphics,circuitState,componentLabels,moveLabel:moveComponentLabel,

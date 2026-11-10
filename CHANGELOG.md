@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3
+
+- Unify measurement and criterion IDs, publish nested request schemas and identify invalid fields before execution.
+- Refresh native value labels after parameter edits and keep rotated labels upright and separated from symbols.
+- Add pin and symbol-center placement anchors with actual-position metadata.
+- Return explicit rollback scope and refreshed state; support keeping completed batch operations.
+- Add independent frame and grid controls for schematic image export.
+- Distinguish actual analysis errors from cumulative native status records.
+
 ## 0.3.2
 
 - Guide agents to fit and reopen saved sheets before accepting cropped schematic images.

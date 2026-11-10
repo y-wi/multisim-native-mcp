@@ -4,6 +4,7 @@ from .measurements import finite,measure
 from .verification import verify
 from .waveforms import parse_raw
 from pathlib import Path
+from .contracts import normalize_measurements,normalize_criteria
 
 
 def validate_spec(parameters,analysis,measurements,criteria,objective):
@@ -20,11 +21,10 @@ def validate_spec(parameters,analysis,measurements,criteria,objective):
     if total>100:raise ValueError('Sweep exceeds 100 trials')
     allowed={'analysis','step','stop','use_initial_conditions','ac_sweep','ac_points','ac_start','ac_stop'}
     if not isinstance(analysis,dict) or set(analysis)-allowed:raise ValueError('Invalid analysis options')
-    if not measurements or len(measurements)>100:raise ValueError('Provide 1 to 100 measurements')
+    measurements=normalize_measurements(measurements)
     ids=[m.get('id',str(i)) for i,m in enumerate(measurements)]
     if len(set(ids))!=len(ids):raise ValueError('Duplicate measurement IDs')
-    for c in criteria:
-        if c['measurement'] not in ids:raise ValueError('Unknown constraint measurement')
+    normalize_criteria(criteria,set(ids),allow_empty=True)
     if objective:
         if objective['measurement'] not in ids or objective['goal'] not in ('min','max','target'):raise ValueError('Invalid objective')
         if objective['goal']=='target':finite(objective['target'])

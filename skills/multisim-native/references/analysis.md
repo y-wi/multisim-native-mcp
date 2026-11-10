@@ -21,8 +21,8 @@ Pass the analysis's actual `raw_path` to `native_verify_waveform`:
     {"id":"supply_current","metric":"mean","signal":"I(V1)","start":0.001,"stop":0.01}
   ],
   "criteria": [
-    {"measurement":"output","target":6,"absolute_tolerance":0.01},
-    {"measurement":"supply_current","target":-0.006,"absolute_tolerance":0.00001}
+    {"id":"output","target":6,"absolute_tolerance":0.01},
+    {"id":"supply_current","target":-0.006,"absolute_tolerance":0.00001}
   ]
 }
 ```
@@ -31,7 +31,7 @@ This example assumes a 12 V divider with two 1 kΩ resistors and a transient run
 
 Measurements require `id`, `metric` and `signal`. Real metrics are `min`, `max`, `mean`, `rms`, `peak_to_peak`, `frequency` and `duty_cycle`. Optional fields include `start`, `stop` and crossing `threshold`; duty cycle is a fraction from 0 to 1. Mean and RMS use the actual adaptive time grid. `native_measure_waveform` computes measurements without acceptance criteria.
 
-Criteria refer to a measurement ID and specify `min` / `max`, or `target` with `absolute_tolerance` / `relative_tolerance`. AC metrics `gain_db` and `phase_deg` also need `reference` and `frequency_hz`:
+Criteria use the same `id` as measurements and specify `min` / `max`, or `target` with `absolute_tolerance` / `relative_tolerance`. The older criterion key `measurement` is also accepted. AC metrics `gain_db` and `phase_deg` also need `reference` and `frequency_hz`:
 
 ```json
 {"id":"gain","metric":"gain_db","signal":"V(2)","reference":"V(1)","frequency_hz":1000}
@@ -52,7 +52,7 @@ Use `native_run_parameter_sweep` for synchronous work or `native_start_experimen
   "parameters":[{"ref":"R1","index":1,"values":[500,1000,2000]}],
   "analysis":{"analysis":"op"},
   "measurements":[{"id":"output","metric":"mean","signal":"V(2)"}],
-  "criteria":[{"measurement":"output","min":4,"max":8}],
+  "criteria":[{"id":"output","min":4,"max":8}],
   "objective":{"measurement":"output","goal":"target","target":6}
 }
 ```

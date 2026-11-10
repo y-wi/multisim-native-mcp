@@ -2,6 +2,7 @@
 import collections
 from .measurements import finite
 from .waveforms import signal_index
+from .contracts import normalize_criteria
 
 
 SEGMENTS={'1111110':'0','0110000':'1','1101101':'2','1111001':'3','0110011':'4',
@@ -10,8 +11,8 @@ SEGMENTS={'1111110':'0','0110000':'1','1101101':'2','1111001':'3','0110011':'4',
 
 
 def verify(measurements,criteria):
-    if not criteria or len(criteria)>100:raise ValueError('Provide 1 to 100 acceptance criteria')
     values={m['id']:m['value'] for m in measurements};results=[]
+    criteria=normalize_criteria(criteria,set(values))
     for criterion in criteria:
         key=criterion['measurement']
         if key not in values:raise ValueError('Unknown measurement: '+key)
