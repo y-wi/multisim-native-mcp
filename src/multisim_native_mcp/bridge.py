@@ -262,7 +262,7 @@ class NativeHost:
             if not path.is_absolute() or path.suffix.lower() != '.ms14':
                 raise ValueError('output_path must be an absolute .ms14 path')
             path = path.resolve()
-            if path == self.source or path == self.working or (path.exists() and any(p and os.path.samefile(path, p) for p in (self.source, self.working))):
+            if path == self.source or path == self.working or (path.exists() and any(p and p.exists() and os.path.samefile(path, p) for p in (self.source, self.working))):
                 raise ValueError('Choose a separate output path; source and working copy are protected')
             if not path.parent.is_dir():
                 raise ValueError('Output directory does not exist')
@@ -272,14 +272,24 @@ class NativeHost:
                     raise FileExistsError('Output already exists; choose another path or explicitly set overwrite=true')
                 backup = path.with_name(path.name + '.' + uuid.uuid4().hex[:8] + '.bak')
                 shutil.copy2(path, backup)
+            native_target=path.with_name('save-'+uuid.uuid4().hex+'.ms14') if backup else path
+            original_path=self.call('inspect')['projectPath'] if backup else None
             try:
-                result = self.call('save', {'path': str(path)})
-                if result['nativeResult'] != 1 or result['errorCode'] != 0 or not path.is_file() or path.stat().st_size < 32:
+                result = self.call('save', {'path': str(native_target)})
+                if result['nativeResult'] != 1 or result['errorCode'] != 0 or not native_target.is_file() or native_target.stat().st_size < 32:
                     raise RuntimeError('Native SaveProjectDocument failed: ' + json.dumps(result))
+                if backup:
+                    native_target.replace(path)
+                    if not self.call('setProjectPath',{'path':str(path)}):raise RuntimeError('Saved file is ready but the native document path could not be updated')
+                    result['path']=str(path)
             except Exception:
                 if backup:
                     shutil.copy2(backup, path)
+                    try:self.call('setProjectPath',{'path':original_path})
+                    except Exception:pass
                 raise
+            finally:
+                if backup:native_target.unlink(missing_ok=True)
             return {**result, 'sha256': sha256(path), 'bytes': path.stat().st_size,
                     'backup': str(backup) if backup else None, 'source_unchanged': sha256(self.source) == self.source_hash if self.source else None}
 

@@ -11,7 +11,7 @@
 | `native_list_wires` | component_ref |
 | `native_connect_pins` | source_ref, source_pin, target_ref, target_pin |
 | `native_move_component` | component_ref, dx, dy |
-| `native_save_copy` | output_path, overwrite |
+| `native_save_copy` | output_path, overwrite, allow_off_page, verify |
 | `native_close_copy` | — |
 | `native_attach` | pid, project_index |
 | `native_create_circuit` | title |
@@ -76,6 +76,12 @@ Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 Synchronize symbol and junction graphics with grid-snapped electrical connectors, then align wire endpoints on the selected sheet. This is one undoable edit. Returns aligned components/junctions, changed wire IDs, endpoint verification and fresh state. Electrical attachments are preserved.
 
 将当前图纸的元件、接点图形同步到电气连接坐标，再校正导线端点，支持一次撤销。返回校正的元件、接点、导线及验证结果和完整状态，保留原电气连接关系。
+
+### Saved circuits / 工程保存
+
+`native_save_copy` checks content bounds on every sheet and reopens a separate verification copy by default. It compares saved component values, positions, labels and wire routes while preserving the active document and its object handles. Move content inside the page or resize the real sheet before saving. Set `allow_off_page: true` for an intentionally off-page drawing, or `verify: false` to skip readback. Existing targets require `overwrite: true`; the previous file is backed up before replacement.
+
+`native_save_copy` 默认检查所有图纸的内容边界，并打开独立校验副本，比较保存后的元件值、位置、标签和导线路径，保留当前文档及对象句柄。保存前将内容移入图纸或调整实际图纸尺寸。有意保留纸外布局时使用 `allow_off_page: true`，使用 `verify: false` 可跳过重开校验。覆盖已有文件需传入 `overwrite: true`，替换前保留旧文件备份。
 
 ### Interactive simulation / 交互仿真
 

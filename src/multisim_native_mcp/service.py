@@ -4,12 +4,15 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes as w
 import csv
+from contextlib import contextmanager
 import json
 import math
 import os
 from pathlib import Path
 import re
+import shutil
 import threading
+import tempfile
 import time
 import uuid
 
@@ -64,6 +67,85 @@ class EditorService(NativeHost):
     def folder(self):
         if not self.working: raise RuntimeError('Open a copy or attach to a project first')
         return self.working.parent
+
+    @contextmanager
+    def analysis_transport(self,stem):
+        """Keep the legacy SPICE shell's filenames ASCII; publish artifacts at their requested path."""
+        if str(stem).isascii():
+            yield stem
+            return
+        root=Path(os.environ.get('MULTISIM_NATIVE_IO_DIR',tempfile.gettempdir())).resolve()
+        root.mkdir(parents=True,exist_ok=True)
+        if not str(root).isascii():
+            short=ctypes.create_unicode_buffer(32768)
+            get_short=ctypes.WinDLL('kernel32').GetShortPathNameW
+            get_short.argtypes=[w.LPCWSTR,w.LPWSTR,w.DWORD];get_short.restype=w.DWORD
+            count=get_short(str(root),short,len(short))
+            if not count or count>=len(short) or not short.value.isascii():
+                raise ValueError('The SPICE file transport requires an ASCII directory. Set MULTISIM_NATIVE_IO_DIR to an existing writable ASCII path; circuit and result paths may use Unicode.')
+            root=Path(short.value)
+        with tempfile.TemporaryDirectory(prefix='multisim-native-io-',dir=root) as temporary:
+            native_stem=Path(temporary)/stem.name
+            try:yield native_stem
+            finally:
+                for suffix in ('.cir','.raw'):
+                    source=native_stem.with_suffix(suffix)
+                    if source.is_file():shutil.copy2(source,stem.with_suffix(suffix))
+
+    @staticmethod
+    def saved_signature(sheets):
+        """Compare saved content without process-local object IDs."""
+        def clean(value):
+            if isinstance(value,float):return round(value,6)
+            if isinstance(value,list):return [clean(v) for v in value]
+            if isinstance(value,dict):return {k:clean(v) for k,v in value.items()}
+            return value
+        def endpoint(value):return {k:value[k] for k in ('ref','pin','x','y') if k in value}
+        def order(values):return sorted(values,key=lambda v:json.dumps(v,sort_keys=True))
+        return clean([{'sheet_index':s['sheet_index'],
+                      'page':{k:s['page'][k] for k in ('width','height')},
+                      'components':order([{'ref':c['ref'],'transform':c['transform'],
+                          'pins':order([{'name':p['name'],'x':p['x'],'y':p['y']} for p in c['pins']]),
+                          'labels':[{k:l[k] for k in ('kind','text','center')} for l in c.get('labels',[])],
+                          'parameters':c.get('parameters',[])} for c in s['components']]),
+                      'wires':order([{'source':endpoint(w['source']),'target':endpoint(w['target']),'points':w['points']} for w in s['wires']]),
+                      'content_bounds':s['content_bounds']} for s in sheets])
+
+    def save_copy(self,output_path,overwrite=False,allow_off_page=False,verify=True):
+        if not isinstance(allow_off_page,bool) or not isinstance(verify,bool):raise ValueError('allow_off_page and verify must be boolean')
+        with self.lock:
+            job=self.analysis_job
+            if job and job['status'] in ('running','pause_requested','stop_requested'):
+                raise RuntimeError('Stop numeric analysis before saving the circuit')
+            if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before saving the circuit')
+            self.call('synchronizeGraphics')
+            sheets=self.call('projectCircuitState',{'include_parameters':verify})['states']
+            outside=[]
+            for state in sheets:
+                b=state['content_bounds'];p=state['page']['bounds']
+                if b and (b['left']<p['left'] or b['top']<p['top'] or b['right']>p['right'] or b['bottom']>p['bottom']):
+                    outside.append({'sheet':state['sheets'][state['sheet_index']]['title'],'page_bounds':p,'content_bounds':b})
+            if outside and not allow_off_page:
+                raise ValueError('Circuit content is outside the saved page. Move it inside or resize the sheet; use allow_off_page=true only for an intentional off-page drawing. '+json.dumps(outside,ensure_ascii=False))
+            result=super().save_copy(output_path,overwrite)
+            result.update(page_check={'passed':not outside,'outside_sheets':outside},handles_invalidated=False)
+            if verify:
+                verification=self.folder()/('verify-'+uuid.uuid4().hex+'.ms14')
+                try:
+                    shutil.copy2(result['path'],verification)
+                    reopened=self.call('verifySavedCopy',{'path':str(verification),'include_parameters':True})
+                    expected=self.saved_signature(sheets);actual=self.saved_signature(reopened['states'])
+                    if expected!=actual:
+                        diagnostic=verification.with_suffix('.json')
+                        diagnostic.write_text(json.dumps({'expected':expected,'actual':actual},ensure_ascii=False,indent=2),encoding='utf-8')
+                        raise RuntimeError('Saved circuit differs after native reopen; diagnostics: '+str(diagnostic))
+                    result['verification']={'passed':True,'reopened':True,'sheets':len(sheets),'components':sum(len(s['components']) for s in sheets),'wires':sum(len(s['wires']) for s in sheets)}
+                except Exception:
+                    if result['backup']:shutil.copy2(result['backup'],result['path'])
+                    raise
+                finally:verification.unlink(missing_ok=True)
+            else:result['verification']={'reopened':False}
+            return result
 
     def checkpoint(self):
         path=self.folder()/('checkpoint-'+uuid.uuid4().hex+'.ms14')
@@ -242,21 +324,23 @@ class EditorService(NativeHost):
             intermediate=self.folder()/('native-image-'+uuid.uuid4().hex+'.bmp')
             render_args={'path':str(intermediate),'render_scale':factor,'show_frame':show_frame,'show_grid':show_grid,**({'region':render_region} if render_region else {})}
             captured=None
-            if interactive:
-                deadline=time.monotonic()+wait_timeout
-                while True:
-                    captured=self.call('exportInteractiveImage',{**render_args,'active_component':active_component})
-                    if captured['ready']:break
-                    if captured['state']==2 or time.monotonic()>=deadline:
-                        raise RuntimeError('No stable lit frame for '+str(active_component)+': '+('simulation is paused; resume before waiting for another scan phase' if captured['state']==2 else 'capture timed out'))
-                    time.sleep(.03)
-            else:self.call('exportImage',render_args)
-            with Image.open(intermediate) as image:
-                if gutter:
-                    offset=round(gutter*factor)
-                    image=image.crop((offset,offset,offset+round(width*factor),offset+round(height*factor)))
-                image.save(path,format='PNG' if path.suffix.lower()=='.png' else 'BMP',dpi=(dpi,dpi))
-                size=image.size
+            try:
+                if interactive:
+                    deadline=time.monotonic()+wait_timeout
+                    while True:
+                        captured=self.call('exportInteractiveImage',{**render_args,'active_component':active_component})
+                        if captured['ready']:break
+                        if captured['state']==2 or time.monotonic()>=deadline:
+                            raise RuntimeError('No stable lit frame for '+str(active_component)+': '+('simulation is paused; resume before waiting for another scan phase' if captured['state']==2 else 'capture timed out'))
+                        time.sleep(.03)
+                else:self.call('exportImage',render_args)
+                with Image.open(intermediate) as image:
+                    if gutter:
+                        offset=round(gutter*factor)
+                        image=image.crop((offset,offset,offset+round(width*factor),offset+round(height*factor)))
+                    image.save(path,format='PNG' if path.suffix.lower()=='.png' else 'BMP',dpi=(dpi,dpi))
+                    size=image.size
+            finally:intermediate.unlink(missing_ok=True)
             return {'path':str(path),'width':size[0],'height':size[1],'bytes':path.stat().st_size,
                     'dpi':dpi,'scale':scale,'region':region or page['bounds'],'off_page_components':off_page,'show_frame':show_frame,'show_grid':show_grid,
                     'source':'native schematic image renderer',**({k:captured[k] for k in ('capture_mode','display_states','simulation')} if captured else {})}
@@ -291,12 +375,16 @@ class EditorService(NativeHost):
                 record['netlist']={k:v for k,v in netlist.items() if k!='content'}
                 if netlist['failed']:raise RuntimeError('Native netlist check failed: '+netlist['messages'])
                 self.numeric_session_used=True
-                result=self.call('simulate',{'analysis':analysis,'step':step,'stop':stop,'use_initial_conditions':use_initial_conditions,
-                    'ac_sweep':ac_sweep,'ac_points':ac_points,'ac_start':ac_start,'ac_stop':ac_stop,'source_path':str(stem.with_suffix('.cir'))})
-                record['native']=result
-                self.analysis_started.clear()
-                if result.get('failed'):raise RuntimeError('Native analysis failed at '+result.get('stage','analysis'))
-                raw=stem.with_suffix('.raw');exported=self.call('simulationExport',{'path':str(raw)});record['export']=exported
+                with self.analysis_transport(stem) as transport:
+                    result=self.call('simulate',{'analysis':analysis,'step':step,'stop':stop,'use_initial_conditions':use_initial_conditions,
+                        'ac_sweep':ac_sweep,'ac_points':ac_points,'ac_start':ac_start,'ac_stop':ac_stop,'source_path':str(transport.with_suffix('.cir'))})
+                    record['native']=result
+                    self.analysis_started.clear()
+                    if result.get('failed'):
+                        details=result.get('error_text') or json.dumps(result.get('errors') or [e for t in result.get('trace',[]) for e in t.get('errors',[])])
+                        raise RuntimeError('Native analysis failed at '+result.get('stage','analysis')+'; '+details)
+                    exported=self.call('simulationExport',{'path':str(transport.with_suffix('.raw'))});record['export']=exported
+                raw=stem.with_suffix('.raw')
                 if not raw.is_file():raise RuntimeError('Native simulator produced no waveform')
                 data=parse_raw(raw)
                 expected={'tran':'Transient Analysis','op':'DC Operating Point','ac':'AC Analysis'}[analysis]

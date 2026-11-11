@@ -70,7 +70,8 @@ def test_off_page_routing_and_fitted_export(tmp_path):
         assert h.call('circuitState')==before
         with Image.open(image['path']) as rendered:assert any(b>r+40 for r,g,b in rendered.convert('RGB').get_flattened_data())
         output=tmp_path/'cropped-image-original-sheet.ms14'
-        h.save_copy(str(output));h.close();h.open_copy(str(output))
+        with pytest.raises(ValueError,match='outside the saved page'):h.save_copy(str(output))
+        h.save_copy(str(output),allow_off_page=True);h.close();h.open_copy(str(output))
         reopened=h.call('circuitState')
         assert reopened['page']['width']==960 and reopened['page']['height']==720
         assert reopened['content_bounds']['right']>reopened['page']['width']

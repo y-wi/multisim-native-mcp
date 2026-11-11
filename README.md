@@ -182,6 +182,7 @@ Example request:
 | --- | --- | --- |
 | `MULTISIM_NATIVE_INSTALL` | Multisim installation directory | `%ProgramFiles(x86)%\National Instruments\Circuit Design Suite 14.3` |
 | `MULTISIM_NATIVE_DATA_DIR` | Working copies and session artifacts | `%LOCALAPPDATA%\MultisimNativeMCP` |
+| `MULTISIM_NATIVE_IO_DIR` | Optional ASCII directory for legacy SPICE file transfers | System temporary directory |
 | `CODEX_HOME` | Codex configuration directory | `%USERPROFILE%\.codex` |
 
 Run `multisim-native-mcp doctor` to check the Python architecture, package resources and Multisim modules. `configure` preserves the other Codex settings and creates a timestamped backup when updating an existing configuration.

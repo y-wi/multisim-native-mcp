@@ -618,7 +618,7 @@ function exportImage(args) {
     finally {method('user32.dll','ReleaseDC','int',['pointer','pointer'],'stdcall')(ptr(0),dc);}
     if(rows!==height)throw new Error('Native bitmap readback failed');
     buffer.writeByteArray(new Uint8Array(54));buffer.writeU16(0x4d42);buffer.add(2).writeU32(size+54);buffer.add(10).writeU32(54);Memory.copy(buffer.add(14),header,40);
-    const file=new File(args.path,'wb');file.write(buffer.readByteArray(size+54));file.close();
+    writeNativeFile(args.path,buffer,size+54);
     return {path:args.path,width,height,render_scale:args.render_scale||1,region};
   } finally {
     if(!bitmap.isNull())new NativeFunction(bitmap.readPointer().readPointer(),'pointer',['pointer','uint'],'thiscall')(bitmap,1);
@@ -629,6 +629,26 @@ function exportImage(args) {
 }
 function synchronizeGraphics() {
   return repairWireGeometry();
+}
+function writeNativeFile(path,data,length) {
+  const text=typeof data==='string',size=length===undefined?(text?unescape(encodeURIComponent(data)).length:data.byteLength):length;
+  const buffer=length!==undefined?data:text?Memory.allocUtf8String(data):Memory.alloc(Math.max(1,size));
+  if(length===undefined&&!text&&size)buffer.writeByteArray(data);
+  const module=Process.getModuleByName('kernel32.dll');
+  const create=new SystemFunction(module.getExportByName('CreateFileW'),'pointer',['pointer','uint','uint','pointer','uint','uint','pointer'],'stdcall');
+  const write=new SystemFunction(module.getExportByName('WriteFile'),'int',['pointer','pointer','uint','pointer','pointer'],'stdcall');
+  const close=new NativeFunction(module.getExportByName('CloseHandle'),'int',['pointer'],'stdcall');
+  const opened=create(Memory.allocUtf16String(path),0x40000000,1,ptr(0),2,0x80,ptr(0));
+  if(opened.value.equals(ptr(-1)))throw new Error('Cannot create native output '+path+' (Windows error '+opened.lastError+')');
+  try {
+    const count=Memory.alloc(4);let offset=0;
+    while(offset<size){
+      count.writeU32(0);const result=write(opened.value,buffer.add(offset),Math.min(size-offset,1048576),count,ptr(0));
+      if(!result.value||!count.readU32())throw new Error('Cannot write native output '+path+' (Windows error '+result.lastError+')');
+      offset+=count.readU32();
+    }
+  } finally {close(opened.value);}
+  return {path,bytes:size};
 }
 function netlist() {
   const firstError=nativeErrorLog.length;
@@ -783,7 +803,7 @@ function simulate(args) {
   shell('clear-plots','destroy all');shell('clear-circuit','remcirc');
   let sent;
   if(args.source_path) {
-    const file=new File(args.source_path,'w');file.write(text.content+'\n.end\n');file.close();
+    writeNativeFile(args.source_path,text.content+'\n.end\n');
     sent=shell('load-netlist','source "'+args.source_path.replace(/\\/g,'/')+'"').result;
   } else sent=method('SpiceifsSch.dll','?SendNetlist@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer','uint8','pointer'])(session,stdString(text.content+'\n.end\n',false),0,stdString('',true));
   if(trace.length&&trace[trace.length-1].errors.length)return {failed:true,stage:'load-netlist',trace,...simulationInfo()};
@@ -834,6 +854,33 @@ function circuitState(args={}) {
   for(const c of state.components)c.labels=componentLabels({ref:c.id},c).labels;
   if(args.include_parameters)for(const c of state.components){const p=parameterInfo({ref:c.id},c);c.parameters=p.parameters;c.library={family:p.info[0],name:p.info[1],symbol_family:p.info[2],model:p.info[3]};}
   return {sheets:readSheets(),page,components:state.components,wires:wires().wires,content_bounds:contentBounds()};
+}
+function projectCircuitState(args={}) {
+  const previous=selectedSheetId,states=[],sheets=readSheets();
+  try {
+    for(const sheet of sheets){selectSheet({index:sheet.index});states.push({sheet_index:sheet.index,...circuitState(args)});}
+  } finally {selectedSheetId=previous;cachedDiagram=null;}
+  return {states};
+}
+function verifySavedCopy(args) {
+  const context=project(),original=context.proj,originalSheet=selectedSheetId,value=pathString(args.path);let loaded=null;
+  try {
+    const result=method('DrwEngine.dll','?FileOpen@CWorkspaceContainer@@QAE?AW4EOpenResult@1@ABVCPathString@@_N1@Z','int',['pointer','pointer','uint8','uint8'])(project().container,value,0,0);
+    const found=projects().projects.find(p=>p.path.toLowerCase()===args.path.toLowerCase());
+    if(!found||ptr(found.id).equals(original))throw new Error('Saved verification copy could not be opened: '+result);
+    loaded=ptr(found.id);selectedProjectIndex=found.index;selectedSheetId=null;cachedDiagram=null;
+    return projectCircuitState(args);
+  } finally {
+    native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(value);
+    if(loaded){
+      method('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(loaded,0);
+      method('DrwEngine.dll','?FileCloseProject@CWorkspaceContainer@@','int',['pointer','pointer','uint8'])(context.container,loaded,0);
+    }
+    selectedProjectIndex=0;selectedSheetId=null;cachedDiagram=null;
+    const found=projects().projects.find(p=>ptr(p.id).equals(original));
+    if(!found)throw new Error('Original document is unavailable after save verification');
+    selectedProjectIndex=found.index;selectedSheetId=originalSheet;cachedDiagram=null;activateSheet();
+  }
 }
 function componentLabels(args,source=null) {
   const c=source||component(args.ref),context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
@@ -900,7 +947,7 @@ function arrangeComponentLabels(ref) {
   labels.forEach((l,i)=>{moveComponentLabel({ref:c.id,kind:l.kind,x:body.right+9+(l.bounds.right-l.bounds.left)/2,y:y+heights[i]/2});y+=heights[i]+4;});
 }
 const editorHandlers={
-  componentBounds,synchronizeGraphics,circuitState,componentLabels,moveLabel:moveComponentLabel,
+  componentBounds,synchronizeGraphics,circuitState,projectCircuitState,verifySavedCopy,componentLabels,moveLabel:moveComponentLabel,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
   parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,repairWireGeometry,sheets:readSheets,
   electricalPorts:args=>{
@@ -908,7 +955,7 @@ const editorHandlers={
     for(let n=0;n<count;n++){const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);ports.push({id:port.toString(),name:returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)});}
     return {ref:args.ref,ports};
   },
-  snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveOptions,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
+  setProjectPath:args=>setProjectPath(args.path),snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveOptions,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
   dbInfo:()=>{
     const db=masterDb(),manager=method('LibraryAccess.dll','?GetDatabaseManager@CDatabaseManager@@SAP','pointer',[],'mscdecl')(),files=method('LibraryAccess.dll','?GetDatabaseFileManager@CDatabaseManager@@','pointer',['pointer'])(manager),record=method('LibraryAccess.dll','?GetMasterDatabaseFile@CDatabaseFileManager@@','pointer',['pointer'])(files),strings=[];
     for(let offset=0;offset<128;offset+=4)try{const value=record.add(offset).readPointer().readUtf16String(520);if(value&&/^[A-Za-z]:|Master|Database/i.test(value))strings.push({offset,value});}catch(_){}

@@ -181,6 +181,7 @@ Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
 | --- | --- | --- |
 | `MULTISIM_NATIVE_INSTALL` | Multisim 安装目录 | `%ProgramFiles(x86)%\National Instruments\Circuit Design Suite 14.3` |
 | `MULTISIM_NATIVE_DATA_DIR` | 工作副本和会话产物目录 | `%LOCALAPPDATA%\MultisimNativeMCP` |
+| `MULTISIM_NATIVE_IO_DIR` | 旧版 SPICE 文件传输使用的可选英文目录 | 系统临时目录 |
 | `CODEX_HOME` | Codex 配置目录 | `%USERPROFILE%\.codex` |
 
 运行 `multisim-native-mcp doctor` 检查 Python 位数、安装资源和 Multisim 模块。`configure` 保留其他 Codex 设置，更新已有配置时生成带时间戳的备份。

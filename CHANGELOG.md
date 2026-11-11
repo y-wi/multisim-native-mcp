@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7
+
+- Write native image and netlist files through Unicode Windows paths, and stage SPICE file transfers automatically.
+- Remove temporary bitmap and transport files after use.
+- Save over existing outputs without native overwrite dialogs; preserve backups and document paths.
+- Check every saved sheet for off-page content and verify saved copies through native reopen while retaining active object handles.
+- Include native failure details in analysis errors.
+- License the project under MIT.
+
 ## 0.3.6
 
 - Add configurable native interactive time steps and real-time pacing for low-frequency display circuits.

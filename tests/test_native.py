@@ -110,6 +110,10 @@ def test_attach_preserves_existing_process(tmp_path,different_reference):
         assert Path(connected['backup']).is_file()
         client.edit('move',{'ref':'R1','dx':18,'dy':9})
         client.save_copy(str(tmp_path/'attached.ms14'))
+        before=client.call('components')
+        saved=client.save_copy(str(tmp_path/'attached.ms14'),overwrite=True)
+        assert saved['verification']['passed'] and Path(saved['backup']).is_file()
+        assert client.call('components')==before and not client.working.exists()
         closed=client.close()
         assert closed['detached'] and not closed['closed']
         assert owner.process.poll() is None

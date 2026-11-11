@@ -116,9 +116,9 @@ def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
 
 @server.tool()
 @checked
-def native_save_copy(output_path: str, overwrite: bool = False) -> dict:
-    """Save through native SaveProjectDocument to a separate absolute .ms14 output path. Check content_bounds against page.bounds and resize the real sheet or move content inside before saving; fit_content image export does not resize the saved sheet. Existing output requires explicit overwrite and is backed up."""
-    return host.save_copy(output_path, overwrite)
+def native_save_copy(output_path: str, overwrite: bool = False, allow_off_page: bool = False, verify: bool = True) -> dict:
+    """Save a separate absolute .ms14 file while stopped. Check all sheets for off-page content and verify the saved copy through native reopen without replacing the active document or invalidating its handles. Resize or move off-page content before saving; allow_off_page=true preserves an intentional off-page layout. verify=false skips readback. Existing output requires overwrite=true and is backed up."""
+    return host.save_copy(output_path,overwrite,allow_off_page,verify)
 
 
 @server.tool()
