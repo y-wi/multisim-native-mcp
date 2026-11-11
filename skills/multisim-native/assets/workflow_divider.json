@@ -5,7 +5,8 @@
         "id": "session",
         "kind": "session",
         "mode": "create",
-        "title": "Workflow divider"
+        "title": "Workflow divider",
+        "output_path": "C:/Circuits/divider.ms14"
       },
       {
         "id": "wiring",
@@ -188,8 +189,7 @@
       },
       {
         "id": "save",
-        "kind": "save",
-        "output_path": "C:\\Circuits\\divider.ms14"
+        "kind": "save"
       },
       {
         "id": "image",

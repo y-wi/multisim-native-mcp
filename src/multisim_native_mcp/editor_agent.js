@@ -271,6 +271,15 @@ function selectProject(args) {
   if(!projects().projects.some(p=>p.index===args.index))throw new Error('Project index not found');
   selectedProjectIndex=args.index;selectedSheetId=null;cachedDiagram=null;activateSheet();return inspect();
 }
+function openDocument(args) {
+  const value=pathString(args.path);
+  try {
+    method('DrwEngine.dll','?FileOpen@CWorkspaceContainer@@QAE?AW4EOpenResult@1@ABVCPathString@@_N1@Z','int',['pointer','pointer','uint8','uint8'])(project().container,value,0,0);
+    const found=projects().projects.find(p=>p.path.toLowerCase()===args.path.toLowerCase());
+    if(!found)throw new Error('Native document open did not produce the requested project');
+    return selectProject({index:found.index});
+  }finally{native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(value);}
+}
 function createSheet(args) {
   const d=diagram(),root=d.candidates.find(s=>s.name==='.?AVCDrwSubSheet@@')||d.candidates[0];
   const kind=Memory.alloc(64),name=pathString(args.title),page=pathString(args.page||String(readSheets().length+1));

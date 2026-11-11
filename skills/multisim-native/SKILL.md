@@ -1,66 +1,47 @@
 ---
 name: multisim-native
-description: "Create, edit, wire, simulate and verify editable NI Multisim circuits through the multisim_native MCP server, using staged workflows for complete circuit tasks."
+description: "Create, edit, wire, simulate and save native Multisim circuits in the task workspace through the multisim_native MCP server."
 ---
 
 # Multisim Native
 
-Use `multisim_native` for real Multisim objects and native simulation. Tool names below omit the client prefix.
+Use `multisim_native` for editable Multisim objects and native simulation. This skill matches the current 0.5.0 interfaces, including persistent simulation settings and direct file editing. Tool names below omit the client prefix.
 
-## Choose the execution shape
+## Work on the actual document
 
-For a complete circuit task, prefer **one `native_run_workflow` plan** covering the known stages. Read [references/workflows.md](references/workflows.md) for the schema, result references and complete examples. The server prepares component metadata, reads actual pins, refreshes handles and executes dependent steps internally. Return to the agent when library choices, ambiguous objects or failed electrical criteria require a design decision.
+- For a new circuit, determine the output directory from the current task context (normally the current working directory), choose an unused `.ms14` filename, and pass the absolute `output_path` to `native_create_circuit(output_path, title)` or a workflow `session` with `mode: create`. Use a user-specified path when provided. The MCP operates on file paths; it has no global project/workspace directory. Never use AppData, a recovery directory or a packaged template as the deliverable.
+- For an existing circuit use `native_open_circuit(source_path)` or a workflow `session` with `mode: open`. This edits the actual source. A single existing Multisim window is reused. Use `native_attach` to select a specific process/document when needed; attached windows stay open on detach.
+- A request to create, fix or modify a circuit includes saving the requested result. Use `native_save_source` or a workflow `save` stage without an output path to update the current document. Do not ask again for routine authorized saves, backups or verification. Closing through `native_close_copy` or a workflow `close` stage also saves pending changes by default; `save_changes: false` skips saving (detached user windows retain unsaved edits).
+- Use `native_save_copy(output_path)` for a requested Save As. In direct mode that output becomes the current document. Saving the current path routes to normal source save without an additional overwrite flag. Backups, checkpoints, logs and verification copies are managed internally.
+- Use `native_open_copy` / `session.isolated_copy: true` only for a requested comparison, diagnostic or preserved-original experiment. Pass an explicit `output_path` in the current task directory for its comparison file. Never choose copy mode merely because an ordinary edit might fail; native checkpoints handle recovery.
 
-For a single adjustment, screenshot or diagnostic, use its individual tool. Do not wrap a one-step task in unnecessary preparation and analysis. Existing clients without workflow tools can use `native_edit_batch`; see [references/editing.md](references/editing.md).
+## Choose a suitable execution shape
 
-- Use tool schemas already supplied by the client. Discover missing tools once when necessary; do not enumerate capabilities before every phase.
-- Open a source with a workflow `session` stage (`mode: open`) or `native_open_copy`. Use `mode: create` for a new circuit and `mode: attach` for an explicitly selected existing window. Owned startup requires other Multisim windows to be closed. Closing an attached session detaches and leaves the user's window open.
-- Consume initial state and prior results. Do not separately query runtime status, sheets, all components and all wires when the needed data is already available.
-- Use `native_prepare_components` for **unknown component types whose pins or value slots affect the design**. Submit all those types together. Existing prepared metadata is cached for the session. Known indexed parameters and primary `value` placement can go straight into an edit stage.
+For a complete circuit task, prefer one `native_run_workflow` plan for the known stages; read [references/workflows.md](references/workflows.md) for schemas and examples. For a local adjustment use the corresponding tool or edit batch. Reuse returned state and prepared metadata rather than querying all objects between every operation.
 
-## Plan once, execute by phase
+Group related edits, bind results and refer to actual returned pins/IDs. Prepare unfamiliar library types when their pin names or parameter slots are uncertain. Known parts can be placed directly. Include analysis and numeric criteria when the task calls for electrical verification; use saved native readback for persistence verification. A successful save does not need another manual close/open cycle. Inspect the requested export for visual acceptance.
 
-1. Describe the known components, values, connections, analyses, acceptance criteria and output paths in one plan. Group related edits into a stage; up to 100 edits share a rollback checkpoint. Use `bind` names and `{"$ref":"binding.component.id"}` instead of asking the agent to read intermediate IDs. Results and bounded numeric offsets can feed later steps.
-2. Use placement `value: 1000` or `value: "1k"` when the component has exactly one `role: value` slot. The executor resolves its index. For other parameters, select an explicit index or an unambiguous role/name. A resistor's model option is not its resistance.
-3. Use exact named pins from known metadata. The executor resolves actual placed connectors and their coordinates before wiring. Unknown pin schemas need one consolidated preparation round, not a query after every placement.
-4. Put measurements and criteria directly on the `analysis` stage. A voltage selector can use `{ref, pin}` with a bound component ID; current uses `{current: component}`. This avoids separate netlist, vector lookup, waveform read and verification calls for ordinary acceptance.
-5. Follow with `layout`, `save` and `export` stages as requested. Analysis already performs netlist checking. `save` verifies an independently reopened copy by default. After `verification.passed: true`, a second close/open verification is unnecessary. Inspect the requested native export for visual acceptance.
-6. For a plan spanning several agent calls, use `native_session_changes` and pass its `revision` as `expected_revision`. Reuse unchanged metadata. The server detects stale plans and rebinds uniquely identifiable objects across controlled native refreshes; ambiguous bindings stop execution.
+Use nonzero `native_workflow_status` waits for ongoing work. Failed or interrupted work is unfinished; inspect the failed stage, correct the cause and resume its tail. Rollback, undo, redo and controlled native refreshes can invalidate IDs; use returned current state or workflow bindings. Internal checkpoints preserve the actual workspace/source identity during recovery.
 
-## Wait and recover at decision boundaries
+## Native details that affect correctness
 
-`native_run_workflow` waits up to 30 seconds by default. Inspect `status`: `complete` is finished; `running` needs `native_workflow_status(workflow_id, wait_timeout: 30)`. Keep a nonzero wait for ongoing work rather than repeatedly polling. `failed`, `needs_input`, `cancelled` and `interrupted` are not successful completion.
+- Coordinates are top-left sheet units, 96 per inch. The blank sheet is 960 by 720; inspect actual bounds before layout. `fit_content` crops an export and does not resize the document. Resize/move an unintentionally off-page circuit; preserve an intentional off-page drawing with `allow_off_page: true`.
+- A visible touching line is not sufficient evidence of electrical attachment. Connect actual native pins and verify geometry/connectivity when relevant. VCC/VEE symbols can share references; use current component IDs or bound placement results to distinguish them.
+- For `RESISTOR_VIRTUAL`, resistance is parameter index 1; index 0 is a model option. Prefer returned value descriptors for other types. Native values use SI units; a 12 V, two 1 kilohm divider has 6 V midpoint and source current -0.006 A.
+- Choose time steps for the fastest relevant signal and check the resulting waveform when changing accuracy. Low-frequency LED circuits can use 1 ms steps; multiplexed displays may need smaller steps. Capture actual display frames rather than synthesizing animation states. Native edits/configuration require a stopped simulator.
 
-The result includes completed stages, the failed stage, diagnostics, key measurements and artifact paths. Fetch `detail: true` only when bindings or full diagnostics are needed. Use `native_control_workflow(action: resume)` to retry the unfinished tail explicitly; `replacement_steps` can replace that tail without rebuilding successful stages. After external edits, inspect the new state and supply its revision. Use `cancel` to interrupt analysis or stop at a native edit-slice boundary.
+For detailed editing/geometry contracts read [references/editing.md](references/editing.md); for analysis and display verification read [references/analysis.md](references/analysis.md).
 
-An edit-stage failure restores that stage, retaining earlier successful stages. Analysis and output failures preserve earlier edits and completed files. Automatic preparation and geometry repair do not justify changing electrical values or solver settings to force acceptance. Change the design when the evidence calls for it.
+## Persistent configuration in 0.5.0
 
-## Native geometry and values
+`native_simulation_settings` discovers existing analysis types, typed scalar paths, solver options and revision before editing. It supports independent `interactive` and `analysis` scopes and native custom/default solver selection. Use `solver_options` for tolerances, integration, convergence, temperature and flags; null/false disables an override. Integer path tokens select duplicate labels and require the returned `expected_revision`. Existing scalar fields are editable; the API does not create empty native lists or new analysis instances. Numeric execution supports OP/AC/TRAN; other profile settings can be saved for native Multisim use.
 
-- Coordinates use top-left sheet units, **96 units per inch**. The blank sheet is **960 × 720**. `anchor: center` or `anchor: pin` describes placement intent; grid snapping can change actual coordinates. Keep the complete drawing inside the actual sheet before saving. `fit_content` changes image framing only.
-- Library names can resemble unrelated 3D parts. Check family/group and model metadata. An adjustable resistor is `RESISTOR_VIRTUAL`, family `RESISTOR`, group `Basic`; its primary resistance is index **1**, while index **0** is `model_option`.
-- VCC/VEE symbols can share a reference. Bind their individual placement results or select current IDs. Do not treat a shared network name as a unique placed object. Standalone undo, redo and netlist refresh may invalidate raw IDs.
-- A visually touching line is not a native electrical connection. Layout checks distinguish electrical attachment from drawn endpoint alignment. Use `repair_geometry` when geometry is defective; preserve electrical connectivity.
-- Native samples use SI units: V, A, s and Hz. A 12 V divider with two 1 kΩ resistors should give **6 V and −0.006 A**. Never invent a scaling factor to make an incorrect current agree.
+`native_configure_interactive` and workflow interactive stages retain configuration in the native document by default. Use `persist: false` only for an intentionally temporary run. Configuration changes are written to disk by normal save/close; `save_to_source: true` saves a single configuration transaction immediately. `saved_to_file: false` means that call performed no disk save.
 
-## Interactive displays
+Numeric analysis tools keep explicit run arguments local by default. Use `persist: true` to retain a run's analysis profile, or `use_saved_settings: true` to execute its stored analysis and solver options. RAW/CSV results remain external. Use `native_configure_sheet_display` for saved grid, border and bounds. `native_configure_wiring(persist: true)` commits application-wide preferences rather than circuit content.
 
-A workflow `interactive` stage configures, starts, waits for requested display states, captures several native frames and stops by default. Supply `active_component` and `expected_digit` for each capture. Multiplexed displays light successively; preserve each actual frame and its reported state. Use a `decode` stage on transient data to verify stable scanning over multiple cycles. A single lit frame is not numerical proof of the whole sequence.
-
-Choose time steps for the fastest relevant signal. A 1 ms step with real-time pacing suits low-frequency LED behavior, not every multiplexed circuit. Stop interactive simulation before editing or numeric analysis. For individual controls and waveform details, read [references/analysis.md](references/analysis.md).
-
-For permanent simulation settings, use `native_configure_interactive(persist: true, ...)` and then save, or add `save_to_source: true` when the user explicitly requests updating the original file. Source saves include a backup, external-edit detection and native reopen verification. `saved_to_file: false` means the document configuration still needs saving. Temporary session settings remain the default. A workflow `interactive` stage accepts `persist: true`; follow it with a `save` stage for a persistent output file.
-
-## Persistent configuration and source saves
-
-Use `native_simulation_settings` to read actual native analysis types, scalar paths, types, solver-option enabled states and revision before editing. It supports `interactive` and `analysis` scopes. Supply `solver_options` for tolerances, integration, convergence, temperature and flags; the server also selects native custom settings so defaults cannot mask the values. `null`/`false` disables solver overrides. An integer path token selects a duplicate native field and requires `expected_revision`. Existing scalar fields are editable; empty lists and new native analysis instances are not created. Numeric execution supports OP/AC/TRAN; other existing profile settings can be saved for Multisim.
-
-Use `native_save_source` when the user requests updating the opened original circuit. It saves all current document edits with a backup, conflict checks and independent native reopen verification. `native_save_copy` continues to protect the original. New circuits need a separate save and reopening that saved file before source saves. For single configuration transactions, `save_to_source: true` is available on simulation and sheet-display settings. `saved_to_file: false` means that call did not write a file.
-
-Numeric analysis tools accept `persist: true` to retain run arguments in the native analysis profile, `save_to_source: true` to also save the source, or `use_saved_settings: true` to execute the stored profile and solver options through the native compiler. Workflow `simulation_settings` and `sheet_display` stages configure the document; `save` accepts `save_to_source: true` instead of `output_path`. Analysis-stage options accept `persist` or `use_saved_settings`.
-
-Use `native_configure_sheet_display` for saved selected-sheet grid, border and bounds. Export rendering flags and DPI/crop remain external. `native_configure_wiring(persist: true)` commits application-wide native preferences; these are not circuit-file fields. `native_persistence_capabilities` classifies every tool's ownership. Runtime clock/animation phase, undo stacks, RAW/CSV/PNG outputs and MCP experiment/workflow records are not embedded circuit settings. Title-block visibility is derived from native title-block objects after loading; its temporary export flag is not a portable document boolean.
+`native_persistence_capabilities` explains every tool's ownership. Runtime clock/animation phase, undo stacks, export flags and experiment/workflow records have session/external ownership. Title-block presence follows native title-block objects after loading; the export rendering flag is not a portable document boolean.
 
 ## Deliver
 
-Report the saved circuit and requested exports, measured acceptance and any remaining failed criterion. Distinguish numeric verification from visual inspection. If the user will validate simulation themselves, deliver the edit and requested geometry checks without adding experiments.
+Report the actual saved workspace/source path, requested exports and relevant verification. Treat existing authorization as sufficient for routine completion. Do not substitute a cached copy or create extra versions the user did not request. If the user chooses to validate simulation personally, finish the requested edit and persistence checks without adding unrelated experiments.

@@ -81,6 +81,9 @@ class NativeHost:
         self.process = self.session = self.agent = self.job = None
         self.source = self.working = None
         self.source_hash = None
+        self.session_dir=None
+        self.isolated=False
+        self.working_hash=None
         self.owned = True
         self.undo_stack, self.redo_stack = [], []
         self.topology_dirty = False
@@ -130,7 +133,25 @@ class NativeHost:
         if not self.kernel.AssignProcessToJobObject(handle, int(self.process._handle)):
             raise ctypes.WinError(ctypes.get_last_error())
 
-    def open_copy(self, source_path: str) -> dict:
+    def recovery_folder(self):
+        if self.session_dir is None:
+            self.session_dir=DATA_DIR/'sessions'/uuid.uuid4().hex
+            self.session_dir.mkdir(parents=True,exist_ok=True)
+        return self.session_dir
+
+    def backup_file(self,path):
+        backup=self.recovery_folder()/('backup-'+uuid.uuid4().hex+'-'+path.name)
+        shutil.copy2(path,backup)
+        return backup
+
+    def open_circuit(self,source_path):
+        return self._open(source_path)
+
+    def open_copy(self,source_path,output_path=None):
+        """Explicit comparison copy, saved beside the source unless a file is supplied."""
+        return self._open(source_path,True,output_path)
+
+    def _open(self, source_path: str, isolated=False,output_path=None,_startup_attempt=0) -> dict:
         with self.lock:
             if self.process and self.process.poll() is None:
                 raise RuntimeError('A copy is already open. Save and close it before opening another.')
@@ -139,18 +160,27 @@ class NativeHost:
                 raise ValueError('source_path must be an absolute path to an existing .ms14 file')
             if not (INSTALL / 'multisim.exe').is_file():
                 raise FileNotFoundError('Multisim executable not found: ' + str(INSTALL / 'multisim.exe'))
+            if not isolated and source.resolve()==(ROOT/'assets'/'blank14.3.ms14').resolve():
+                raise ValueError('Use native_create_circuit to create a workspace document from the packaged template')
+            target=Path(output_path).expanduser() if output_path else source.with_name(source.stem+'.copy-'+uuid.uuid4().hex[:8]+'.ms14')
+            if isolated and (not target.is_absolute() or target.suffix.lower()!='.ms14' or not target.parent.is_dir()):
+                raise ValueError('output_path must be an absolute .ms14 path in an existing directory')
+            if isolated and target.exists():raise FileExistsError('Comparison output already exists')
             if any(p.name.lower() in ('multisim', 'multisim.exe') for p in frida.get_local_device().enumerate_processes()):
-                raise RuntimeError('Close other Multisim windows first. This build redirects new launches to an existing process; the service only operates its own isolated host.')
+                raise RuntimeError('Choose native_open_circuit to reuse an existing Multisim window, or native_attach to select a process; isolated copy startup requires other windows to be closed.')
             self.close()
             self.owned = True
             self.undo_stack, self.redo_stack = [], []
             self.topology_dirty = False
             folder = DATA_DIR / 'sessions' / uuid.uuid4().hex
             folder.mkdir(parents=True)
+            self.session_dir=folder;self.isolated=isolated
             self.source = source.resolve()
             self.source_hash = sha256(self.source)
-            self.working = folder / source.name
-            shutil.copy2(self.source, self.working)
+            self.working = target.resolve() if isolated else self.source
+            if isolated:shutil.copy2(self.source, self.working)
+            else:self.backup_file(self.source)
+            self.working_hash=sha256(self.working)
             startup = subprocess.STARTUPINFO()
             startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             # SW_HIDE prevents this Multisim build from initializing schematic extensions.
@@ -176,7 +206,7 @@ class NativeHost:
                 readiness = None
                 while time.monotonic() < deadline:
                     if self.process.poll() is not None:
-                        raise RuntimeError(f'Isolated Multisim exited with code {self.process.returncode}')
+                        raise RuntimeError(f'Multisim exited during startup with code {self.process.returncode}')
                     if time.monotonic() < ready_after or wait_idle(w.HANDLE(int(self.process._handle)),0) != 0:
                         time.sleep(0.25)
                         continue
@@ -209,7 +239,9 @@ class NativeHost:
                             user.ShowWindow(hwnd, 0)
                         self.handle_generation += 1
                         return {'session_id': folder.name, 'source_path': str(self.source),
-                                'working_copy': str(self.working), 'source_sha256': sha256(self.source),
+                                'working_copy':str(self.working) if isolated else None,'working_path':str(self.working),
+                                'recovery_directory':str(folder),'mode':'copy' if isolated else 'direct',
+                                'source_sha256': sha256(self.source),
                                 'component_count': len(components['components']), **info}
                     except (frida.ProcessNotFoundError, frida.InvalidOperationError):
                         raise
@@ -228,19 +260,25 @@ class NativeHost:
                                 pass
                         time.sleep(0.4)
                 raise TimeoutError('Multisim did not become ready: ' + str(last_error))
-            except BaseException:
+            except BaseException as error:
+                transient_startup=(not isolated and _startup_attempt==0 and self.agent is None and
+                    ((isinstance(error,TimeoutError) and locals().get('last_error') is None) or
+                     self.process and self.process.poll()==0xE0434352))
                 self.close()
+                if transient_startup:return self._open(source_path,isolated,output_path,1)
                 raise
 
     def call(self, operation: str, args: dict | None = None) -> dict:
         with self.lock:
             if not self.agent or not self.process or self.process.poll() is not None:
-                raise RuntimeError('No native project is open. Call native_open_copy, native_create_circuit or native_attach first.')
-            # Only terminate the child owned by this server if a native call stops responding.
+                raise RuntimeError('No native project is open. Call native_open_circuit, native_create_circuit or native_attach first.')
+            # Long numeric runs remain cancellable through the native analysis
+            # controls; a fixed edit watchdog must not kill valid simulations.
             owned = self.process
-            timer = threading.Timer(25, lambda: owned.kill() if self.owned and owned.poll() is None else None)
-            timer.daemon = True
-            timer.start()
+            timer=None
+            if operation!='simulate':
+                timer=threading.Timer(90,lambda:owned.kill() if self.owned and owned.poll() is None else None)
+                timer.daemon=True;timer.start()
             started = time.monotonic()
             self.native_call_count += 1
             try:
@@ -249,12 +287,12 @@ class NativeHost:
                 raise RuntimeError(f'Native {operation} interrupted after {time.monotonic()-started:.1f}s; owned process exit={owned.poll()}: {error}') from error
             finally:
                 self.native_call_seconds += time.monotonic()-started
-                timer.cancel()
+                if timer:timer.cancel()
 
     def _message(self,message,data):
         if message.get('payload',{}).get('analysis_started'): self.analysis_started.set()
-        if self.working:
-            with (self.working.parent/'native-diagnostics.jsonl').open('a',encoding='utf-8') as file:
+        if self.session_dir:
+            with (self.session_dir/'native-diagnostics.jsonl').open('a',encoding='utf-8') as file:
                 file.write(json.dumps(message)+'\n')
 
     def reload_agent(self) -> dict:
@@ -281,8 +319,7 @@ class NativeHost:
             if path.exists():
                 if not overwrite:
                     raise FileExistsError('Output already exists; choose another path or explicitly set overwrite=true')
-                backup = path.with_name(path.name + '.' + uuid.uuid4().hex[:8] + '.bak')
-                shutil.copy2(path, backup)
+                backup = self.backup_file(path)
             native_target=path.with_name('save-'+uuid.uuid4().hex+'.ms14') if backup else path
             original_path=self.call('inspect')['projectPath'] if backup else None
             try:
@@ -338,4 +375,6 @@ class NativeHost:
             if self.job:
                 self.kernel.CloseHandle(self.job)
             self.process = self.session = self.agent = self.job = None
-            return {'closed': self.owned, 'detached': not self.owned, 'pid': pid, 'working_copy': str(self.working) if self.working else None}
+            return {'closed': self.owned, 'detached': not self.owned, 'pid': pid,
+                    'working_path':str(self.working) if self.working else None,
+                    'working_copy': str(self.working) if self.isolated and self.working else None}

@@ -19,7 +19,7 @@ async def create_divider(output: Path):
                 if result.is_error:raise RuntimeError(result.content[0].text)
                 return result.structured_content or json.loads(result.content[0].text)
             try:
-                await call('native_create_circuit',title='Voltage divider')
+                await call('native_create_circuit',output_path=str(output/'voltage-divider.ms14'),title='Voltage divider')
                 operations=[]
                 for name,ref,x,y,value in [('DC_POWER','V1',108,108,12),('RESISTOR_VIRTUAL','R1',306,108,1000),('RESISTOR_VIRTUAL','R2',504,108,1000),('GROUND','0',108,306,None)]:
                     args={'name':name,'ref':ref,'x':x,'y':y}
@@ -36,7 +36,7 @@ async def create_divider(output: Path):
                 result=await call('native_run_analysis',analysis='op')
                 current=next(v for v in result['vectors'] if v['name']=='I(V1)')
                 if current['unit']!='A' or abs(current['last']+.006)>1e-8:raise RuntimeError('Divider source current must be -0.006 A')
-                await call('native_save_copy',output_path=str(output/'voltage-divider.ms14'),overwrite=True)
+                await call('native_save_source')
                 await call('native_export_image',output_path=str(output/'voltage-divider.png'),overwrite=True,dpi=192)
                 (output/'analysis.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
             finally:

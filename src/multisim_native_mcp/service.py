@@ -67,8 +67,33 @@ class EditorService(NativeHost):
         self.numeric_session_used=False
 
     def folder(self):
-        if not self.working: raise RuntimeError('Open a copy or attach to a project first')
+        if self.session_dir:return self.session_dir
+        if not self.working: raise RuntimeError('Open or create a circuit first')
         return self.working.parent
+
+    def open_circuit(self,source_path):
+        source=Path(source_path).expanduser()
+        if not source.is_absolute():raise ValueError('source_path must be an absolute .ms14 file path')
+        source=source.resolve()
+        if not source.is_file() or source.suffix.lower()!='.ms14':raise ValueError('Choose an existing .ms14 circuit')
+        if self.process and self.process.poll() is None:raise RuntimeError('Save and close the current circuit first')
+        running=[p for p in frida.get_local_device().enumerate_processes() if p.name.lower() in ('multisim','multisim.exe')]
+        if len(running)==1:
+            try:
+                self.attach(running[0].pid)
+                matches=[p for p in self.call('projects')['projects'] if Path(p['path']).resolve()==source]
+                if len(matches)>1:raise RuntimeError('This source is open more than once; select a specific project with native_attach')
+                if matches:self.call('selectProject',{'index':matches[0]['index']})
+                else:self.call('openDocument',{'path':str(source)})
+                self.source=self.working=source;self.source_hash=sha256(source)
+                self.isolated=False
+                checkpoint=self.checkpoint()
+                return {**self.call('inspect'),'source_path':str(source),'working_path':str(source),'working_copy':None,
+                        'recovery_directory':str(self.folder()),
+                        'backup':checkpoint['path'],'mode':'direct','owned':False,'attached_existing':True}
+            except Exception:
+                self.close();raise
+        return NativeHost.open_circuit(self,str(source))
 
     @contextmanager
     def analysis_transport(self,stem):
@@ -118,6 +143,8 @@ class EditorService(NativeHost):
     def save_copy(self,output_path,overwrite=False,allow_off_page=False,verify=True):
         if not isinstance(allow_off_page,bool) or not isinstance(verify,bool):raise ValueError('allow_off_page and verify must be boolean')
         with self.lock:
+            if self.source and not self.isolated and Path(output_path).resolve()==self.source:
+                return self.save_source(allow_off_page)
             job=self.analysis_job
             if job and job['status'] in ('running','pause_requested','stop_requested'):
                 raise RuntimeError('Stop numeric analysis before saving the circuit')
@@ -152,6 +179,9 @@ class EditorService(NativeHost):
                     raise
                 finally:verification.unlink(missing_ok=True)
             else:result['verification']={'reopened':False}
+            if not self.isolated and not getattr(self,'_saving_source',False) and self.source:
+                self.source=self.working=Path(result['path']).resolve();self.source_hash=result['sha256']
+                result['current_document']=str(self.source)
             return result
 
     def _save_source(self,allow_off_page=False):
@@ -159,15 +189,15 @@ class EditorService(NativeHost):
         if not self.source or not self.source.is_file():raise ValueError('No existing source file to save')
         source=self.source
         if source==(ROOT/'assets'/'blank14.3.ms14').resolve():
-            raise ValueError('Save a new circuit with native_save_copy first; the packaged template is protected')
+            raise ValueError('Create a workspace circuit with native_create_circuit; packaged templates are internal resources')
         if sha256(source)!=self.source_hash:raise RuntimeError('Source changed outside this session; reopen it before saving')
         staged=source.with_name('save-source-'+uuid.uuid4().hex+'.ms14')
         original_path=self.call('inspect')['projectPath'];backup=None;replaced=False
+        self._saving_source=True
         try:
             result=self.save_copy(str(staged),verify=True,**({'allow_off_page':True} if allow_off_page else {}))
             if sha256(source)!=self.source_hash:raise RuntimeError('Source changed during verification; source was not overwritten')
-            backup=source.with_name(source.name+'.'+uuid.uuid4().hex[:8]+'.bak')
-            shutil.copy2(source,backup)
+            backup=self.backup_file(source)
             if sha256(backup)!=self.source_hash or sha256(source)!=self.source_hash:
                 raise RuntimeError('Source changed during backup; source was not overwritten')
             staged.replace(source);replaced=True
@@ -179,11 +209,50 @@ class EditorService(NativeHost):
             if replaced:shutil.copy2(backup,source)
             self.call('setProjectPath',{'path':original_path})
             raise
-        finally:staged.unlink(missing_ok=True)
+        finally:
+            self._saving_source=False;staged.unlink(missing_ok=True)
 
     def save_source(self,allow_off_page=False):
         if not isinstance(allow_off_page,bool):raise ValueError('allow_off_page must be boolean')
         with self.lock:return self._save_source(allow_off_page)
+
+    def save_current(self,allow_off_page=False):
+        with self.lock:
+            if not self.isolated:return self.save_source(allow_off_page)
+            source,digest=self.source,self.source_hash
+            try:
+                self.source=self.working;self.source_hash=self.working_hash or sha256(self.working)
+                result=self.save_source(allow_off_page);result['saved_to_source']=False;result['saved_working_copy']=True
+                self.working_hash=sha256(self.working)
+                return result
+            finally:self.source,self.source_hash=source,digest
+
+    def finish(self,save_changes=True):
+        if not isinstance(save_changes,bool):raise ValueError('save_changes must be boolean')
+        with self.lock:
+            saved=None
+            if save_changes and self.agent and self.call('inspect')['modified']:
+                if self.interactive_status()['state_name'] in ('running','paused'):self.control_interactive('stop',15)
+                saved=self.save_current()
+            result=self.close()
+            return {**result,'save':saved,'saved_changes':saved is not None}
+
+    def document_context(self):
+        return {'source_path':str(self.source) if self.source else None,'source_sha256':self.source_hash,
+                'working_path':str(self.working) if self.working else None,'working_sha256':self.working_hash,
+                'isolated':self.isolated}
+
+    def open_recovery(self,checkpoint,document=None):
+        """Load an internal checkpoint, then rebind the actual document identity."""
+        document=document or {}
+        NativeHost.open_circuit(self,checkpoint['path'])
+        if document.get('source_path'):
+            self.source=Path(document['source_path']);self.source_hash=document.get('source_sha256')
+            self.working=Path(document.get('working_path') or document['source_path'])
+            self.working_hash=document.get('working_sha256');self.isolated=document.get('isolated',False)
+            self.call('setProjectPath',{'path':str(self.working)})
+            if checkpoint.get('modified'):self.call('markModified')
+        return self.call('inspect')
 
     def configure_wiring(self,autowire_on_connection=None,autowire_on_move=None,connect_touching=None,
                          move_connection_limit=None,reset=False,persist=False):
@@ -276,17 +345,19 @@ class EditorService(NativeHost):
             raise RuntimeError('Native checkpoint failed')
         return {'path':str(path),'original_path':result['original_path'],
                 'modified':result['modified'],
-                'sheet_index':next(s['index'] for s in sheets if s['selected'])}
+                'sheet_index':next(s['index'] for s in sheets if s['selected']),
+                'document':self.document_context()}
 
     def restore(self, checkpoint):
         try:
             result=self.call('restoreSnapshot',checkpoint)
         except Exception:
             if not self.owned: raise
-            source,digest,undo,redo=self.source,self.source_hash,self.undo_stack,self.redo_stack
+            source,digest,working,isolated,undo,redo=self.source,self.source_hash,self.working,self.isolated,self.undo_stack,self.redo_stack
             self.close()
-            NativeHost.open_copy(self,checkpoint['path'])
+            NativeHost.open_circuit(self,checkpoint['path'])
             self.source,self.source_hash,self.undo_stack,self.redo_stack=source,digest,undo,redo
+            self.working,self.isolated=working,isolated
             result=self.call('restoreSnapshot',checkpoint)
             result['host_restarted']=True
         self.topology_dirty=False
@@ -717,7 +788,7 @@ class EditorService(NativeHost):
             if not found: raise ValueError('PID is not a running Multisim process')
             self.close();self.owned=False;self.process=ExistingProcess(pid)
             folder=DATA_DIR/'sessions'/uuid.uuid4().hex;folder.mkdir(parents=True)
-            self.working=folder/'attached-session.ms14';self.source=None;self.source_hash=None
+            self.session_dir=folder;self.isolated=False;self.working=folder/'attached-session.ms14';self.source=None;self.source_hash=None
             try:
                 self.session=frida.attach(pid)
                 inspector=self.session.create_script('rpc.exports.modules=()=>Process.enumerateModules().map(m=>({name:m.name,path:m.path}));',runtime='v8')
@@ -731,6 +802,7 @@ class EditorService(NativeHost):
                 info=self.call('inspect');source=Path(info['projectPath'])
                 self.source=source.resolve() if source.is_absolute() and source.is_file() else None
                 self.source_hash=sha256(self.source) if self.source else None
+                if self.source:self.working=self.source
                 self.undo_stack,self.redo_stack=[],[];self.topology_dirty=False
                 backup=self.checkpoint()
                 self.handle_generation += 1
@@ -738,14 +810,28 @@ class EditorService(NativeHost):
             except Exception:
                 self.close();raise
 
-    def create(self,title='Circuit'):
+    def create(self,title='Circuit',output_path=None):
         if self.process and self.process.poll() is None: raise RuntimeError('Close or detach the current project first')
         if not title or len(title)>128: raise ValueError('Provide a title of 1 to 128 characters')
-        result=self.open_copy(str(ROOT/'assets'/'blank14.3.ms14'))
+        directory=Path.cwd()
+        if output_path:
+            path=Path(output_path).expanduser()
+            if not path.is_absolute():raise ValueError('output_path must be an absolute .ms14 file path')
+            path=path.resolve()
+            if path.suffix.lower()!='.ms14' or not path.parent.is_dir():raise ValueError('Choose an .ms14 output in an existing directory')
+            if path.exists():raise FileExistsError('Circuit already exists; open it with native_open_circuit to edit it')
+        else:
+            stem=re.sub(r'[<>:"/\\|?*\x00-\x1f]','_',title).strip(' .') or 'Circuit'
+            if re.fullmatch(r'(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])',stem):stem='Circuit-'+stem
+            path=directory/(stem+'.ms14');index=2
+            while path.exists():path=directory/(stem+'-'+str(index)+'.ms14');index+=1
+        with path.open('xb') as target, (ROOT/'assets'/'blank14.3.ms14').open('rb') as template:shutil.copyfileobj(template,target)
+        result=self.open_circuit(str(path))
         if self.call('components')['components'] or self.call('wires')['wires']:
             self.close();raise RuntimeError('Native blank template contains unexpected objects')
         self.edit('sheetTitle',{'title':title})
-        return {**result,'title':title,'blank':True}
+        saved=self.save_source()
+        return {**result,'title':title,'blank':True,'path':str(path),'save':saved}
 
     def close(self):
         job=getattr(self,'analysis_job',None)

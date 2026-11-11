@@ -135,7 +135,8 @@ def test_workflow_supports_settings_display_and_explicit_source_save():
         {'id':'display','kind':'sheet_display','show_grid':False},
         {'id':'save','kind':'save','save_to_source':True}]})
     assert plan.steps[-1].save_to_source
-    for save in [{'kind':'save','id':'save'},{'kind':'save','id':'save','output_path':'x','save_to_source':True},
+    assert not WorkflowPlan.model_validate({'steps':[{'kind':'save','id':'save'}]}).steps[0].output_path
+    for save in [{'kind':'save','id':'save','output_path':'x','save_to_source':True},
                  {'kind':'save','id':'save','save_to_source':True,'verify':False}]:
         with pytest.raises(ValidationError):WorkflowPlan.model_validate({'steps':[save]})
 

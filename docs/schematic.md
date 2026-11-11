@@ -29,9 +29,9 @@ Native automatic routing requires endpoints inside the sheet. Resize the sheet o
 
 ## Coordinates / 坐标
 
-`native_create_circuit` and `native_open_copy` return an initial `state`. Use `native_get_circuit_state` to read sheets, components, named pins, wire vertices, labels and content bounds together.
+`native_create_circuit(output_path, title)` and `native_open_circuit(source_path)` return an initial `state`. Use `native_get_circuit_state` to read sheets, components, named pins, wire vertices, labels and content bounds together.
 
-`native_create_circuit` 与 `native_open_copy` 返回初始 `state`。通过 `native_get_circuit_state` 可一次读取图纸、元件、命名引脚、导线、标签与内容边界。
+`native_create_circuit(output_path, title)` 与 `native_open_circuit(source_path)` 返回初始 `state`。通过 `native_get_circuit_state` 可一次读取图纸、元件、命名引脚、导线、标签与内容边界。
 
 Coordinates use **sheet units**, with a top-left origin and 96 units per inch. Read `page.width`, `page.height` and `page.bounds` before placing components. The bundled blank sheet is 960 × 720; printing-paper dimensions are separate. Wire vertices and pin positions use the same coordinate system.
 

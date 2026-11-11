@@ -25,6 +25,12 @@ def test_replace_existing_server_removes_old_environment():
     assert entry['startup_timeout_sec'] == 30
 
 
+def test_normal_configuration_does_not_pin_a_previous_project_globally():
+    source='[mcp_servers.multisim_native]\ncommand="old"\n[mcp_servers.multisim_native.env]\nMULTISIM_NATIVE_WORKSPACE="E:/work"\nOLD="old"\n'
+    result=tomllib.loads(codex_document(source,client_entry()))
+    assert 'env' not in result['mcp_servers']['multisim_native']
+
+
 def test_configure_backups_and_idempotence(tmp_path):
     path = tmp_path / 'profile with spaces' / 'config.toml'
     path.parent.mkdir();path.write_text('model = "sample"\n', encoding='utf-8')

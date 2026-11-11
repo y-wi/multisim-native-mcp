@@ -311,3 +311,4 @@ function persistenceSheetData(state) {
 }
 editorHandlers.sheetDisplaySettings=sheetDisplaySettings;
 editorHandlers.persistWiringOptions=persistWiringOptions;
+editorHandlers.openDocument=openDocument;

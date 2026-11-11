@@ -4,7 +4,7 @@
 
 `native_run_workflow` 在一次 MCP 请求内连续执行电路任务：准备库元件、解析实际引脚、检查电路、原生仿真、指标验收和文件交付。局部调整仍可使用单步工具。
 
-Use the complete [12 V divider request](../skills/multisim-native/assets/workflow_divider.json): create its output directory, adjust the two output paths and submit the JSON arguments. The workflow verifies a 6 V midpoint and −6 mA source current, saves an editable circuit with native readback, exports a PNG and closes its owned session.
+Use the complete [12 V divider request](../skills/multisim-native/assets/workflow_divider.json): create its output directory, set the two absolute artifact filenames and submit the JSON arguments. The workflow verifies a 6 V midpoint and −6 mA source current, saves an editable circuit with native readback, exports a PNG and closes its owned session.
 
 可直接使用完整的 [12 V 分压请求](../skills/multisim-native/assets/workflow_divider.json)：创建输出目录、修改两个输出路径，再提交 JSON 参数。工作流验证 6 V 分压和 −6 mA 电源电流，保存可编辑工程并原生回读，导出 PNG 后关闭自有会话。
 
@@ -41,3 +41,5 @@ Set `persist: true` on an `interactive` stage to write its steps and pacing into
 `stats.external_calls` 统计工作流 API 调用次数，`native_calls`、`native_seconds` 统计原生主机 RPC。模型推理轮次需由客户端记录。完整字段与示例见 [工作流 skill 参考](../skills/multisim-native/references/workflows.md)。
 
 Version 0.5.0 provides `simulation_settings` (`scope`, `analysis_type`, `changes`, `solver_options`, `expected_revision`) and `sheet_display` (`show_grid`, `show_border`, `show_bounds`) stages. Analysis options accept `persist:true` or `use_saved_settings:true`. A save stage accepts `save_to_source:true` instead of `output_path`, always with backup and native reopen verification. A wiring stage's `persist:true` commits application-wide preferences, separately from the circuit file. See [persistence ownership](persistence.md).
+
+Normal session open/create now uses actual workspace/source documents. Supply the required absolute output_path for new circuits. A save stage without output_path saves the current document; close also saves pending changes by default. Explicit comparisons alone use isolated_copy:true, with an explicit comparison output_path. Checkpoints and backups remain internal.

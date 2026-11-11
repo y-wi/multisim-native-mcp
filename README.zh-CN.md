@@ -5,7 +5,7 @@
 通过 Model Context Protocol 编辑 NI Multisim 原生电路，执行仿真、测量和实验验收。
 
 - 有类型约束的完整工作流，支持结果引用、原生验收、失败续跑和文件交付。
-- 76 个 MCP 工具，涵盖元件、连线、图纸、子电路、模型与分析。
+- 77 个 MCP 工具，涵盖元件、连线、图纸、子电路、模型与分析。
 - 支持原生仿真参数、求解器设置及源文件保存，详见[持久保存能力说明](docs/persistence.md)。
 - 可配置交互仿真步长、实时节奏，并截取器件实际点亮状态。
 - 生成可编辑的 `.ms14` 工程，支持按引脚名称连接和导线分支。
@@ -127,11 +127,11 @@ Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 
 ### 编辑已有工程
 
-1. `native_open_copy`：打开工作副本。
+1. `native_open_circuit`：直接打开源文件。
 2. `native_list_components`：读取元件引用名和准确的引脚名称。
 3. 编辑元件与连接。
 4. `native_check_netlist`：检查电气网表。
-5. `native_save_copy`：保存新的 `.ms14` 文件。
+5. `native_save_source`：保存当前工作区文件或源文件。
 6. `native_close_copy`：关闭会话。
 
 编辑已有窗口时，使用 `native_attach` 并提供进程 ID。结束附着会话会释放连接，保留该 Multisim 窗口。
@@ -162,9 +162,9 @@ VCC、VEE 等电源符号可以重名。移动、旋转和连线时使用所选�
 
 随后调用 `native_control_interactive`，参数为 `{"action": "start"}`。1 ms 步长可减少求解计算，原生实时节奏让灯光按实际时间切换。较快的信号应使用更小步长，调整后验证频率和输出顺序。
 
-默认配置对当前会话后续由 MCP 启动的运行生效。通过 `interactive_options.last_start` 确认临时参数；无参数调用读取临时配置，停止仿真后传入 `{"reset": true}` 清除临时配置。
+默认配置写入原生文档，正常保存或关闭后保留；只有明确需要临时覆盖时才使用 persist:false。读取临时覆盖也需传入 persist:false，可通过 interactive_options.last_start 确认。
 
-要永久保存到原 `.ms14`，向 `native_configure_interactive` 传入 `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`。服务通过原生文档属性写入配置，先备份源文件，再独立重开保存结果核对全部仿真设置；以后普通打开电路并启动仿真即可生效。源文件被外部修改时会阻止覆盖。只传 `persist: true` 时修改仍在当前文档中，需调用 `native_save_copy` 才会写入文件；返回值 `saved_to_file` 会区分这两种状态。用 `{"persist": true}` 读取文档配置，或用 `{"persist": true, "reset": true}` 恢复自动步长和实时节奏后保存。数值分析定义及其他求解器选项均保留。
+要永久保存到原 `.ms14`，向 `native_configure_interactive` 传入 `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`。服务通过原生文档属性写入配置，先备份源文件，再独立重开保存结果核对全部仿真设置；以后普通打开电路并启动仿真即可生效。源文件被外部修改时会阻止覆盖。只传 `persist: true` 时修改仍在当前文档中，正常保存或关闭后才会写入文件；返回值 `saved_to_file` 会区分这两种状态。用 `{"persist": true}` 读取文档配置，或用 `{"persist": true, "reset": true}` 恢复自动步长和实时节奏后保存。数值分析定义及其他求解器选项均保留。
 
 可直接向 agent 提出：
 
@@ -175,7 +175,7 @@ VCC、VEE 等电源符号可以重名。移动、旋转和连线时使用所选�
 | 类别 | 操作 |
 | --- | --- |
 | 工作流 | 阶段执行、结果引用、验收、等待、取消、续跑和会话版本 |
-| 会话 | 环境检查、打开副本、新建工程、附着、诊断、关闭 |
+| 会话 | 环境检查、直接打开/新建文件、显式对照副本、附着、诊断、关闭 |
 | 元件 | 元件库检索、放置、复制、删除、替换、重命名 |
 | 参数 | 读取与修改参数、内嵌 SPICE 模型 |
 | 布局 | 移动、旋转、镜像、导线布线、添加文字 |
@@ -192,12 +192,14 @@ VCC、VEE 等电源符号可以重名。移动、旋转和连线时使用所选�
 
 [原理图指南](docs/schematic.md) · [实验指南](docs/experiments.md) · [工具参考](docs/tools.md) · [Python 示例](examples/voltage_divider.py)
 
+新建电路使用调用方提供的绝对文件路径；`native_open_circuit` 直接编辑已有源文件，正常保存或关闭会保存当前文档。备份、检查点和日志由内部处理，只有显式对照任务才创建副本。MCP 不设置全局工作区。详见[文件编辑与持久保存](docs/persistence.md)。
+
 ## 配置
 
 | 环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
 | `MULTISIM_NATIVE_INSTALL` | Multisim 安装目录 | `%ProgramFiles(x86)%\National Instruments\Circuit Design Suite 14.3` |
-| `MULTISIM_NATIVE_DATA_DIR` | 工作副本和会话产物目录 | `%LOCALAPPDATA%\MultisimNativeMCP` |
+| `MULTISIM_NATIVE_DATA_DIR` | 内部恢复文件和会话产物目录 | `%LOCALAPPDATA%\MultisimNativeMCP` |
 | `MULTISIM_NATIVE_IO_DIR` | 旧版 SPICE 文件传输使用的可选英文目录 | 系统临时目录 |
 | `CODEX_HOME` | Codex 配置目录 | `%USERPROFILE%\.codex` |
 

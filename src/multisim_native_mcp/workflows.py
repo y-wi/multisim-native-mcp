@@ -155,15 +155,18 @@ class WorkflowManager:
             return result
 
     def _preflight_paths(self,steps):
-        seen=set();issues=[];protected=[self.host.source] if self.host.source else []
+        seen=set();issues=[];protected=[];current=self.host.source
         for step in steps:
             if step['kind']=='session' and step['mode']=='open':
-                source=Path(step['source_path']);protected.append(source)
+                source=Path(step['source_path']);current=source
+                if step.get('isolated_copy'):protected.append(source)
                 if not source.is_absolute() or source.suffix.lower()!='.ms14' or not source.is_file():
                     issues.append({'stage':step['id'],'path':str(source),'error':'Choose an existing absolute .ms14 source'})
+            elif step['kind']=='session' and step['mode']=='create':
+                current=Path(step['output_path']) if step.get('output_path') else None
         for step in steps:
-            if step['kind']=='save' and step.get('save_to_source'):
-                if not protected and not any(s['kind']=='session' and s['mode']=='attach' for s in steps):
+            if step['kind']=='save' and not step.get('output_path'):
+                if not current and not any(s['kind']=='session' and s['mode'] in ('attach','create') for s in steps):
                     issues.append({'stage':step['id'],'error':'Source save requires an existing source circuit'})
                 continue
             outputs=[step] if step['kind'] in ('save','export') else step.get('captures',[])
@@ -172,7 +175,7 @@ class WorkflowManager:
                 suffixes={'.ms14'} if step['kind']=='save' else {'.png','.bmp'}
                 if not path.is_absolute() or path.suffix.lower() not in suffixes or not path.parent.is_dir():
                     issues.append({'stage':step['id'],'path':str(path),'error':'Choose an absolute output with an existing parent directory'})
-                elif path.exists() and not step.get('overwrite',False):
+                elif path.exists() and not step.get('overwrite',False) and not (step['kind']=='save' and current and path.resolve()==current.resolve() and not protected):
                     issues.append({'stage':step['id'],'path':str(path),'error':'Output exists; specify overwrite=true or another path'})
                 elif str(path.resolve()).lower() in seen:
                     issues.append({'stage':step['id'],'path':str(path),'error':'Output path is used by another stage'})
@@ -265,6 +268,7 @@ class WorkflowManager:
                         record['state']=self.cache;record['revision']=self.cache['revision']
                         if not (stage['kind']=='interactive' and not stage.get('stop_after',True)):
                             record['resume_checkpoint']=self.host.checkpoint()
+                            if hasattr(self.host,'document_context'):record['document']=self.host.document_context()
                     record['completed'].append({'id':stage['id'],'kind':stage['kind'],'seconds':round(time.monotonic()-phase_started,4)})
                     record['next_step']=index+1
                     record.get('partial_outputs',{}).pop(stage['id'],None)
@@ -359,8 +363,10 @@ class WorkflowManager:
         kind=stage['kind'];payload={k:v for k,v in stage.items() if k not in ('id','kind')}
         a=payload if kind=='edit' else resolve(payload,record['bindings']);ensure_valid(a)
         if kind=='session':
-            if a['mode']=='create':result=self.host.create(a.get('title','Circuit'))
-            elif a['mode']=='open':result=self.host.open_copy(a['source_path'])
+            if a['mode']=='create':result=self.host.create(a.get('title','Circuit'),a['output_path'])
+            elif a['mode']=='open':
+                open_document=self.host.open_copy if a.get('isolated_copy') else self.host.open_circuit
+                result=open_document(a['source_path'],a.get('output_path')) if a.get('isolated_copy') else open_document(a['source_path'])
             else:result=self.host.attach(a['pid'],a.get('project_index',0))
             self.cache=None;self.catalog={};self._capture(rebind=False);return {**result,'state':self.cache}
         if kind=='prepare':return self.prepare(a['components'])
@@ -421,6 +427,7 @@ class WorkflowManager:
             return result
         if kind=='save':
             if a.pop('save_to_source',False):return self.host.save_source(allow_off_page=a.get('allow_off_page',False))
+            if not a.get('output_path'):return self.host.save_current(allow_off_page=a.get('allow_off_page',False))
             return self.host.save_copy(**a)
         if kind=='export':return self.host.export_image(**a)
         if kind=='interactive':
@@ -462,7 +469,7 @@ class WorkflowManager:
                 return {'started':started,'configuration':configuration,'frames':frames,'passed':True}
             finally:
                 if a.get('stop_after',True) or self.cancel_event.is_set():self.host.control_interactive('stop',15)
-        if kind=='close':return self.host.close()
+        if kind=='close':return self.host.finish(a.get('save_changes',True))
         raise ValueError('Unsupported stage: '+kind)
 
     def status(self,identifier,wait_timeout=0,detail=False,count=True):
@@ -519,7 +526,7 @@ class WorkflowManager:
             if not self.host.agent and index:
                 checkpoint=record.get('resume_checkpoint')
                 if not checkpoint:raise NeedsInput('No saved successful phase is available for resume')
-                self.host.open_copy(checkpoint['path']);self.cache=record.get('state');record['reopened_for_resume']=True
+                self.host.open_recovery(checkpoint,record.get('document') or checkpoint.get('document'));self.cache=record.get('state');record['reopened_for_resume']=True
                 if record.get('wiring_options'):self.host.call('wiringOptions',record['wiring_options'])
             self.record=record
             self.cache=copy.deepcopy(record.get('state'))

@@ -4,7 +4,7 @@ For complete circuit tasks, prefer staged workflows in [workflows.md](workflows.
 
 ## State and parameters
 
-Creation and opening return an initial `state`. `native_get_circuit_state(include_parameters: true)` returns current page bounds, sheet selection, component refs and pins, wire routes, labels, content bounds and indexed parameters.
+Create directly in the task workspace with `native_create_circuit(output_path, title)` and edit existing sources with `native_open_circuit`. Both return an initial `state`. `native_get_circuit_state(include_parameters: true)` returns current page bounds, sheet selection, component refs and pins, wire routes, labels, content bounds and indexed parameters.
 
 For a component already present, call `native_get_parameters(component_ref)` and select its electrical-value descriptor by `role`, `name` and `unit`. Write either a numeric `value` or an `expression`, never both:
 
@@ -100,10 +100,12 @@ Example whole-page arguments for `native_export_image` after the saved-sheet che
 {"output_path":"C:/Circuits/divider.png","dpi":192,"fit_content":false}
 ```
 
-Use an existing absolute output directory. PNG and BMP are supported. `dpi` is 36–600, `scale` applies additional scaling, and the pixel budget is 32 million. Rendering uses the native engine and synchronizes connector graphics before export; electrical attachments and sheet dimensions are preserved. Use `native_repair_wire_geometry` for an explicit undoable correction, then save and reopen the circuit.
+Use an existing absolute output directory. PNG and BMP are supported. `dpi` is 36–600, `scale` applies additional scaling, and the pixel budget is 32 million. Rendering uses the native engine and synchronizes connector graphics before export; electrical attachments and sheet dimensions are preserved. Use `native_repair_wire_geometry` for an explicit undoable correction, then save normally; native readback already verifies persistence.
 
 Default `show_frame: false` and `show_grid: false` produce a clean report image. Set `show_frame: true` for sheet border/title block, and `show_grid: true` for the dot grid. These choices are temporary rendering options; the original display settings are restored.
 
 For a detail image, use `fit_content: true` with optional `padding`, or `region: {"left":100,"top":80,"right":700,"bottom":500}` in absolute sheet units. `region` and `fit_content` are mutually exclusive. If a whole-page image omits circuit content, repair the saved sheet before accepting the schematic deliverable; a cropped export alone only fixes the image framing.
 
 Move an overlapping reference with `native_move_component_label(component_ref, x, y)`. Coordinates specify the absolute label center; read `state.components[].labels` for actual bounds. Grid snapping can affect symbol placement, so use returned positions rather than requested coordinates when checking alignment.
+
+Normal saves update the current workspace/source file using `native_save_source`. A workflow `save` without output_path does the same. Save As changes the current document path. Closing saves pending edits by default; explicitly discard only when the task calls for it. Backups and checkpoints are internal, not extra deliverables. `native_open_copy` is for explicit comparisons and creates its editable file in the chosen workspace.

@@ -1,6 +1,6 @@
 # Persistence / 持久保存
 
-Version 0.5.0 provides `native_persistence_capabilities`, an exhaustive ownership audit of all 76 tools. A regression test checks that every public tool is classified exactly once. This describes what survives saving and reopening; runtime state is not mislabeled as circuit configuration.
+Version 0.5.0 provides `native_persistence_capabilities`, an exhaustive ownership audit of all 77 tools. A regression test checks that every public tool is classified exactly once. This describes what survives saving and reopening; runtime state is not mislabeled as circuit configuration.
 
 ## Native simulation settings
 
@@ -58,7 +58,7 @@ Without `save_to_source`, changes remain in the editable native document: call `
 | Undo/redo and metadata caches | Session state. The resulting restored design can be saved; process-local history cannot be embedded as a portable circuit. |
 | Inspection, routing plans and waveform calculations | Read-only outputs; no document setting to save. |
 
-`native_save_source` saves **all** current document edits, not just simulation settings. It always checks external source changes, creates a backup, saves natively to a staged file and independently reopens it before source replacement. Verification covers components/parameters, embedded SPICE text, connectivity/geometry, labels, annotations, page names, grid/border/bounds and the complete simulation-information property. New circuits must first be saved to a separate file; packaged templates remain protected.
+`native_save_source` saves **all** current document edits, not just simulation settings. It always checks external source changes, creates a backup, saves natively to a staged file and independently reopens it before source replacement. Verification covers components/parameters, embedded SPICE text, connectivity/geometry, labels, annotations, page names, grid/border/bounds and the complete simulation-information property. New circuits are created directly as workspace files and use the same normal source save; packaged templates remain internal resources.
 
 ## 中文要点
 
@@ -67,3 +67,13 @@ Without `save_to_source`, changes remain in the editable native document: call `
 `native_save_source` 是统一的源文件保存入口，适用于元件、接线、模型、注释、图纸及仿真配置。保存前备份并检查外部修改，独立重开核对后才替换源文件。图纸网格、边框和坐标边界可持久保存；标题通过原生页名保存，根窗口标题仍由文件名决定。
 
 自动连线偏好是软件全局设置，`persist:true` 保存到 Multisim 应用配置并验证，不声称写进 `.ms14`。运行中的仿真时间、暂停位置、灯光相位、导出参数、波形文件和 MCP 工作流/实验记录各有其运行时或外部保存位置。标题栏临时渲染开关会被原生加载逻辑覆盖，也不声称是独立可保存的文档参数。用 `native_persistence_capabilities` 可查询所有工具的准确保存归属。
+
+## File editing defaults (0.5.0)
+
+New circuits are real `.ms14` files in the task workspace from the start. The calling skill/agent resolves the filename from the task context and supplies an absolute `output_path`; the MCP has no global workspace or project-directory configuration. `native_open_circuit` and workflow `mode:open` edit the actual source. A single running Multisim is reused, opening/selecting the requested source while preserving its other projects. Multiple running processes can be selected with `native_attach`.
+
+`native_save_source` and a workflow `save` without output_path update the current source. Normal close saves pending changes first; save failure leaves the session open. `save_changes:false` skips saving; detached user windows retain unsaved edits. Save As in direct mode becomes the current document, and saving the current path does not require an extra overwrite flag. An authorized edit includes the normal final save; no repeated confirmation is required.
+
+Editable copies are only created by explicitly choosing `native_open_copy` / `session.isolated_copy:true`, with an explicit output filename (or beside the source when omitted). Internal recovery backups, checkpoints, verification files and logs are distinct from the actual editable file. Comparison-mode normal close saves its comparison file, while explicitly calling native_save_source updates the original. Recovery/resume retains the actual source identity and external-change hash rather than making a checkpoint the deliverable.
+
+Interactive configuration and interactive workflow stages default to document persistence. One-off numeric analysis arguments remain per-run unless persist:true is requested. Native simulations no longer have the edit watchdog's fixed 25-second process-kill limit; native pause/stop controls remain available. Other native calls have a 90-second owned-process watchdog. Geometry, electrical validation and external-source conflict checks remain because they detect actual correctness/data-loss problems.

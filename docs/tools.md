@@ -10,7 +10,8 @@
 | `native_runtime_status` | — |
 | `native_persistence_capabilities` | — |
 | `native_diagnostics` | — |
-| `native_open_copy` | source_path |
+| `native_open_circuit` | source_path |
+| `native_open_copy` | source_path, output_path (explicit comparison) |
 | `native_list_components` | — |
 | `native_get_circuit_state` | include_parameters |
 | `native_move_component_label` | component_ref, x, y, kind |
@@ -21,9 +22,9 @@
 | `native_save_source` | allow_off_page |
 | `native_simulation_settings` | scope, analysis_type, changes, solver_options, save_to_source, expected_revision |
 | `native_configure_sheet_display` | show_grid, show_border, show_bounds, save_to_source |
-| `native_close_copy` | — |
+| `native_close_copy` | save_changes (default true) |
 | `native_attach` | pid, project_index |
-| `native_create_circuit` | title |
+| `native_create_circuit` | output_path (required absolute filename), title |
 | `native_search_library` | query, limit, family, group |
 | `native_place_component` | name, x, y, reference, family, group, manufacturer, parameters, anchor, pin |
 | `native_copy_component` | component_ref, new_ref, x, y |
@@ -102,7 +103,7 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 
 ### Interactive simulation / 交互仿真
 
-`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` sets temporary session overrides by default. Select steps that resolve the fastest relevant signal and verify the result. `interactive_options.last_start` reports effective temporary startup parameters. Add `persist: true` to write native document settings, then `native_save_copy` to retain them. Add both `persist: true` and `save_to_source: true` for an explicitly authorized original-file update: the server backs up the original, checks external changes, saves natively and independently reopens to verify all simulation settings. Ordinary GUI starts after reopening use the saved values. `saved_to_file: false` means a save is still needed. Read with `persist: true` and no options. Change while stopped; `reset: true` restores automatic steps and real-time pacing in the selected scope. Persistent changes clear session overrides and preserve numeric-analysis definitions and other solver options.
+`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` writes native document settings by default; persist:false selects temporary overrides. Select steps that resolve the fastest relevant signal and verify the result. `interactive_options.last_start` reports effective temporary startup parameters. Add `persist: true` to write native document settings, then `native_save_copy` to retain them. Add both `persist: true` and `save_to_source: true` for an explicitly authorized original-file update: the server backs up the original, checks external changes, saves natively and independently reopens to verify all simulation settings. Ordinary GUI starts after reopening use the saved values. `saved_to_file: false` means a save is still needed. Read with `persist: true` and no options. Change while stopped; `reset: true` restores automatic steps and real-time pacing in the selected scope. Persistent changes clear session overrides and preserve numeric-analysis definitions and other solver options.
 
 上述参数默认仅本会话有效。添加 `persist: true` 写入原生文档，再另存；同时添加 `save_to_source: true` 则先备份，保存回原文件并独立重开核对。重开后普通启动仿真也使用保存的参数。`saved_to_file: false` 表示还需保存；只传 `persist: true` 读取文档设置。`persist: true, reset: true` 恢复文档的自动步长和实时节奏，再保存即可保留。停止仿真后修改，设置不会覆盖数值分析定义和其他求解器选项。
 
@@ -115,3 +116,5 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 `native_interactive_status(include_displays: true)` 读取原生 `SEVEN_SEG_COM_A` 的段状态，顺序为 `abcdefg`。`native_export_interactive_image` 通过原生位图引擎导出实际显示状态和电路；`active_component` 可指定要等待点亮的数码管。暂停会保留某个位选阶段，等待另一位前先恢复仿真。动态扫描电路逐位点亮，应分别截取各位。每张图片返回 `capture_mode: instantaneous`、`display_states` 和仿真状态。
 
 See [persistence ownership](persistence.md) for advanced native settings, source saves, application preferences and external-only capabilities.
+
+Ordinary editing uses native_open_circuit on the actual source and native_create_circuit in the task workspace. Native save/close defaults update that document; recovery files are internal. Native interactive configuration defaults to persist:true. Explicit copy mode is for comparisons only. See [file editing defaults](persistence.md#file-editing-defaults-050).

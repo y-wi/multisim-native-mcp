@@ -19,7 +19,7 @@ def divider_plan(folder):
     for s,sp,t,tp in [('supply','1','upper','1'),('upper','2','lower','1'),('lower','2','supply','2'),('supply','2','ground','1')]:
         operations.append({'operation':'wire','arguments':{'source':{'ref':ref(s),'pin':sp},'target':{'ref':ref(t),'pin':tp}}})
     return {'steps':[
-        {'id':'session','kind':'session','mode':'create','title':'Workflow divider'},
+        {'id':'session','kind':'session','mode':'create','title':'Workflow divider','output_path':str(folder/'divider-initial.ms14')},
         {'id':'wiring','kind':'wiring','connect_touching':False,'autowire_on_connection':True},
         {'id':'build','kind':'edit','operations':operations},
         {'id':'layout','kind':'layout'},
@@ -93,7 +93,7 @@ def test_native_shared_power_alias_survives_netlist_refresh(tmp_path):
                 ops.append({'operation':'wire','arguments':{'source':{'ref':{'$ref':a+'.component.id'},'pin':'VCC' if a.startswith('P') else ap},
                                                           'target':{'ref':{'$ref':b+'.component.id'},'pin':bp}}})
         result=finish(manager,manager.start({'steps':[
-            {'id':'start','kind':'session','mode':'create'},
+            {'id':'start','kind':'session','mode':'create','output_path':str(tmp_path/'initial.ms14')},
             {'id':'wiring','kind':'wiring','connect_touching':False,'autowire_on_move':False,'autowire_on_connection':False},
             {'id':'build','kind':'edit','operations':ops}, {'id':'netlist','kind':'netlist'},
             {'id':'move','kind':'edit','operations':[{'operation':'move','arguments':{'ref':{'$ref':'P2.component.id'},'dx':9,'dy':18}}]},
@@ -121,7 +121,7 @@ def test_native_interactive_workflow_captures_actual_lit_frames(tmp_path):
         connections=[('V1','1','DS1','COM'),('V1','2','0','1')]+[(a,ap,b,bp) for i,s in enumerate('ABCDEFG') for a,ap,b,bp in [('DS1',s,'R'+str(i+1),'1'),('R'+str(i+1),'2','0','1')]]
         for a,ap,b,bp in connections:ops.append({'operation':'wire','arguments':{'source':{'ref':a,'pin':ap},'target':{'ref':b,'pin':bp}}})
         result=finish(manager,manager.start({'steps':[
-            {'id':'start','kind':'session','mode':'create'},
+            {'id':'start','kind':'session','mode':'create','output_path':str(tmp_path/'initial.ms14')},
             {'id':'wiring','kind':'wiring','connect_touching':False},
             {'id':'build','kind':'edit','operations':ops},
             {'id':'live','kind':'interactive','time_step':.001,'max_time_step':.001,'real_time':True,

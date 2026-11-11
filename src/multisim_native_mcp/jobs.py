@@ -53,6 +53,7 @@ class ExperimentManager:
                 self.host.export_image(str(image.resolve()))
             record={'id':identifier,'status':'queued','created':time.time(),'spec':spec,'schematic_path':str(image.resolve()),
                     'source':source,'source_sha256':sha256(Path(source)),'retry_of':retry_of}
+            if hasattr(self.host,'document_context'):record['document']=self.host.document_context()
             self.store.write(record);self.active=record['id'];self.cancel_event.clear()
             def execute():
                 with self.guard:
@@ -92,7 +93,7 @@ class ExperimentManager:
             if self.host.agent:raise RuntimeError('Close the current native session before retrying its saved experiment copy')
             path=Path(record['source'])
             if sha256(path)!=record['source_sha256']:raise RuntimeError('Saved experiment circuit has changed')
-            self.host.open_copy(str(path))
+            self.host.open_recovery({'path':str(path)},record.get('document'))
             return self.start(**record['spec'],retry_of=identifier)
 
     def shutdown(self):

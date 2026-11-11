@@ -5,7 +5,7 @@
 Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
 - Typed workflows with result bindings, native acceptance, recovery and artifact delivery.
-- 76 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- 77 MCP tools for components, wires, sheets, subcircuits, models and analysis.
 - Persistent native simulation settings, solver options and verified saves back to the source file; see [persistence ownership](docs/persistence.md).
 - Interactive simulation with configurable time steps, real-time pacing and actual display captures.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
@@ -127,11 +127,11 @@ From a source checkout, copy `skills/multisim-native` into the same skills direc
 
 ### Edit an existing project
 
-1. `native_open_copy` — open a working copy.
+1. `native_open_circuit` — open the actual source document.
 2. `native_list_components` — read the component references and exact pin names.
 3. Edit components and connections.
 4. `native_check_netlist` — check the electrical netlist.
-5. `native_save_copy` — save the resulting `.ms14` file.
+5. `native_save_source` — save the current workspace/source file.
 6. `native_close_copy` — close the session.
 
 Use `native_attach` with a process ID to work in an existing Multisim window. Closing an attached session releases the connection and leaves that window open.
@@ -162,9 +162,9 @@ For a low-frequency LED chaser, stop simulation and call `native_configure_inter
 
 Then call `native_control_interactive` with `{"action": "start"}`. The 1 ms steps reduce solver work; native real-time pacing keeps light changes observable. Choose smaller steps for faster signals, and verify the frequency and output sequence after changing them.
 
-By default these settings apply to subsequent MCP-started runs in this session. Read `interactive_options.last_start` to confirm the effective temporary parameters. Call without arguments to read temporary settings, or with `{"reset": true}` while stopped to clear them.
+By default interactive settings belong to the native document and persist through normal save/close. Use persist:false for an intentionally temporary override; read that override with persist:false and confirm it with interactive_options.last_start.
 
-To keep these settings in the original `.ms14`, call `native_configure_interactive` with `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`. The server writes native document properties, backs up the source and independently reopens the saved circuit to verify all simulation settings. Ordinary Multisim starts after reopening use those steps without an MCP override. External source edits block replacement. With only `persist: true`, settings remain in the editable document until `native_save_copy` saves them; `saved_to_file` reports this distinction. Read document settings with `{"persist": true}`; restore automatic steps and real-time pacing with `{"persist": true, "reset": true}` (then save). Numeric-analysis definitions and other solver options are preserved.
+To keep these settings in the original `.ms14`, call `native_configure_interactive` with `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`. The server writes native document properties, backs up the source and independently reopens the saved circuit to verify all simulation settings. Ordinary Multisim starts after reopening use those steps without an MCP override. External source edits block replacement. With only `persist: true`, settings remain in the editable document until normal save/close writes them; `saved_to_file` reports this distinction. Read document settings with `{"persist": true}`; restore automatic steps and real-time pacing with `{"persist": true, "reset": true}` (then save). Numeric-analysis definitions and other solver options are preserved.
 
 Example request:
 
@@ -175,7 +175,7 @@ Example request:
 | Category | Operations |
 | --- | --- |
 | Workflows | Dependent stages, result bindings, acceptance, wait, cancel, resume, session revisions |
-| Sessions | Runtime checks, open copy, create project, attach, diagnostics, close |
+| Sessions | Runtime checks, direct file open/create, explicit comparison copies, attach, diagnostics, close |
 | Components | Library search, place, copy, delete, replace, rename |
 | Parameters | Read/write parameters and embedded SPICE models |
 | Geometry | Move, rotate, mirror, route wires, add text |
@@ -193,12 +193,14 @@ Example request:
 
 [Schematic guide](docs/schematic.md) · [Experiment guide](docs/experiments.md) · [Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)
 
+New circuits are created at the absolute filename supplied by the caller. `native_open_circuit` edits an existing source directly, and normal save/close retains edits in the current document. Backups, checkpoints and logs remain internal. Explicit comparison copies use a separate filename. See [file editing and persistence](docs/persistence.md).
+
 ## Configuration
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `MULTISIM_NATIVE_INSTALL` | Multisim installation directory | `%ProgramFiles(x86)%\National Instruments\Circuit Design Suite 14.3` |
-| `MULTISIM_NATIVE_DATA_DIR` | Working copies and session artifacts | `%LOCALAPPDATA%\MultisimNativeMCP` |
+| `MULTISIM_NATIVE_DATA_DIR` | Internal recovery and session artifacts | `%LOCALAPPDATA%\MultisimNativeMCP` |
 | `MULTISIM_NATIVE_IO_DIR` | Optional ASCII directory for legacy SPICE file transfers | System temporary directory |
 | `CODEX_HOME` | Codex configuration directory | `%USERPROFILE%\.codex` |
 

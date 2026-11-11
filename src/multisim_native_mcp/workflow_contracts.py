@@ -30,13 +30,17 @@ class SessionStage(Stage):
     source_path: str | None = None
     pid: int | None = None
     project_index: int = 0
+    output_path: str | None = None
+    isolated_copy: bool = False
 
     @model_validator(mode='after')
     def required_target(self):
+        if self.mode == 'create' and not self.output_path:raise ValueError('create requires output_path')
         if self.mode == 'open' and not self.source_path:
             raise ValueError('open requires source_path')
         if self.mode == 'attach' and self.pid is None:
             raise ValueError('attach requires pid')
+        if self.isolated_copy and self.mode!='open':raise ValueError('isolated_copy applies only to opening an existing circuit')
         return self
 
 
@@ -214,8 +218,8 @@ class SaveStage(Stage):
 
     @model_validator(mode='after')
     def target(self):
-        if bool(self.output_path)==self.save_to_source:raise ValueError('Choose output_path or save_to_source=true')
-        if self.save_to_source and not self.verify:raise ValueError('Source saves always require verification')
+        if self.output_path and self.save_to_source:raise ValueError('Choose output_path or save_to_source=true')
+        if not self.output_path and not self.verify:raise ValueError('Current/source saves always require verification')
         return self
 
 
@@ -241,7 +245,7 @@ class InteractiveStage(Stage):
     time_step: float | None = Field(default=None, ge=1e-12, le=1)
     max_time_step: float | None = Field(default=None, ge=1e-12, le=1)
     real_time: bool | None = None
-    persist: bool = False
+    persist: bool = True
     captures: list[Capture] = Field(default_factory=list, max_length=16)
     overwrite: bool = False
     stop_after: bool = True
@@ -249,6 +253,7 @@ class InteractiveStage(Stage):
 
 class CloseStage(Stage):
     kind: Literal['close']
+    save_changes: bool = True
 
 
 WorkflowStage = Annotated[SessionStage | PrepareStage | SelectStage | EditStage | WiringStage | SimulationSettingsStage | SheetDisplayStage | NetlistStage |

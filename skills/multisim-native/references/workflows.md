@@ -14,7 +14,7 @@
 
 | kind | Main fields |
 | --- | --- |
-| `session` | `mode: create/open/attach`, `title`, `source_path`, `pid`, `project_index`; first stage only |
+| `session` | `mode: create/open/attach`, required `output_path` for create, `source_path` for open, `pid`, `project_index`; direct mode by default, `isolated_copy: true` only for explicit comparisons; first stage only |
 | `select` | `components: {name: {ref/local_ref/id, pin?, x?, y?}}`; unique native object selection |
 | `prepare` | `components: [{name, family, group, manufacturer}]` |
 | `wiring` | `autowire_on_connection`, `autowire_on_move`, `connect_touching`, `move_connection_limit`, `persist: false` (application-wide) |
@@ -26,10 +26,10 @@
 | `analysis` | `options`, `measurements`, `criteria` |
 | `verify` | `raw_path`, `measurements`, `criteria`; reuse an existing analysis |
 | `decode` | `raw_path`, `digits`, `expected`, `options` for scanned-display decoding |
-| `save` | absolute `output_path` or `save_to_source: true`; `overwrite`, `allow_off_page`, `verify` (source saves always verify) |
+| `save` | normal current-document save by default; optional `output_path` for Save As; `overwrite`, `allow_off_page`, `verify` (source saves always verify) |
 | `export` | absolute `output_path`, `overwrite`, `dpi`, `fit_content`, `show_frame`, `show_grid` |
-| `interactive` | time steps, `real_time`, `persist: false`, `captures`, `overwrite`, `stop_after: true` |
-| `close` | last stage; detach leaves an attached window open |
+| `interactive` | time steps, `real_time`, `persist: true`, `captures`, `overwrite`, `stop_after: true` |
+| `close` | save pending edits by default, then close/detach; `save_changes: false` skips saving |
 
 `options` on an analysis uses `analysis: op/tran/ac`, `step`, `stop`, `use_initial_conditions`, `ac_sweep`, `ac_points`, `ac_start` and `ac_stop`. Add `persist: true` to retain explicit run arguments in the native analysis profile, or `use_saved_settings: true` to execute stored analysis and solver options. Follow with `save` to write configured settings to a file. These two flags are exclusive.
 
@@ -41,7 +41,7 @@ Within an edit stage, the executor prepares metadata, resolves dependencies and 
 
 ## Complete divider example
 
-Use the reusable [divider plan](../assets/workflow_divider.json). Create its output directory and replace the two output paths before submitting. It creates a native 12 V divider, checks layout, verifies 6 V and −6 mA, saves with readback, exports and closes. No separate netlist or waveform-read call is required.
+Use the reusable [divider plan](../assets/workflow_divider.json). Create its output directory and replace the two absolute artifact filenames before submitting. It creates a native 12 V divider, checks layout, verifies 6 V and −6 mA, saves with readback, exports and closes. No separate netlist or waveform-read call is required.
 
 The core dependency pattern is:
 
@@ -87,3 +87,5 @@ Each image is a real instantaneous native frame. The executor waits locally for 
 Check `status` before reporting completion. Default results contain key acceptance and output paths; the detailed record retains raw analysis, bindings, completed phases, failure diagnostics and call statistics. `stats.external_calls` counts workflow API calls, not model reasoning turns. `stats.native_calls` counts host RPCs.
 
 On failure, inspect the failed phase and its diagnostics, then resume with a replacement tail. Completed stages are retained. Failed edit stages roll back as one unit; analysis and file-output failures retain earlier successful edits and files. Reuse a failed acceptance run's `failure.details.raw_path` with a `verify` stage when only criteria need correction. A service restart marks unfinished work interrupted; resume can reopen the saved successful phase. Revision conflicts require inspection and the current `expected_revision`.
+
+Session creation writes a real workspace circuit from the start. Always supply an absolute output filename selected from the task context. Ordinary `mode: open` edits the actual source; a `save` stage needs no path to save it. A Save As output becomes the current document. Recovery files stay internal. Normal save/close is included in an authorized edit request and requires no additional confirmation.

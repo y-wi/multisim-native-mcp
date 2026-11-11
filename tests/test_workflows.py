@@ -33,11 +33,13 @@ class Host:
         raise AssertionError(operation)
     def checkpoint(self):return {'path':str(self.working)}
     def open_copy(self,path):self.agent=True;self.state=circuit('c2')
+    def open_recovery(self,checkpoint,document=None):self.open_copy(checkpoint['path'])
 
 
 @pytest.mark.parametrize('plan',[
     {'steps':[{'id':'a','kind':'edit','operations':[{'operation':'move','arguments':{'ref':{'$ref':'future.component.id'},'dx':9,'dy':0}}]}]},
     {'steps':[{'id':'a','kind':'session','mode':'open'}]},
+    {'steps':[{'id':'a','kind':'session','mode':'create'}]},
     {'steps':[{'id':'a','kind':'close'},{'id':'b','kind':'netlist'}]},
     {'steps':[{'id':'a','kind':'analysis','measurements':[],'criteria':[{'id':'missing','target':1}]}]},
     {'steps':[{'id':'a','kind':'analysis','options':{'analysis':'ac','ac_start':100,'ac_stop':10}}]},

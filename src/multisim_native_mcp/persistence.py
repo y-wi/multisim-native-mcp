@@ -6,7 +6,7 @@ native_place_component native_copy_component native_delete_object native_set_par
 native_set_model_text native_transform_component native_rename_component native_route_wire native_repair_wire_geometry
 native_split_wire native_connect_endpoints native_reconnect_wire native_add_text native_label_wire
 native_create_sheet native_create_subcircuit native_create_hierarchical_port native_edit_batch native_auto_route_wire'''),
-    ('document_settings','circuit','Native document properties; save explicitly. Interactive defaults remain temporary unless persist=true.', '''
+    ('document_settings','circuit','Native document properties; save explicitly. Interactive settings are document-owned by default; persist=false explicitly selects temporary overrides.', '''
 native_simulation_settings native_configure_sheet_display native_configure_interactive'''),
     ('save','circuit_file','Native save with backup and reopen verification; source save always verifies and detects conflicts.', '''
 native_save_source native_save_copy'''),
@@ -25,8 +25,8 @@ native_cancel_experiment native_retry_experiment native_export_experiment_report
 native_export_image native_export_interactive_image'''),
     ('runtime_control','session','Start/pause/resume/stop, simulation time and runtime display states are live process state, not circuit configuration.', '''
 native_analysis_status native_interactive_status native_control_interactive native_control_analysis'''),
-    ('session_context','session','Opening, attaching, sheet selection and metadata preparation control the current session. Save the resulting design separately.', '''
-native_prepare_components native_open_copy native_close_copy native_attach native_create_circuit native_select_sheet'''),
+    ('session_context','session','Opening, attaching, sheet selection and metadata preparation control the current session. Ordinary open/create use the actual workspace/source file; normal close saves pending edits. Explicit comparisons alone use workspace copies.', '''
+native_prepare_components native_open_circuit native_open_copy native_close_copy native_attach native_create_circuit native_select_sheet'''),
     ('inspection','read_only','Reads circuit, waveform or persistence information; creates no document setting that needs saving.', '''
 native_session_changes native_runtime_status native_diagnostics native_list_components native_get_circuit_state
 native_list_wires native_search_library native_get_parameters native_get_model native_list_sheets native_list_projects

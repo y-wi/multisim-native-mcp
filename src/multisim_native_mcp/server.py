@@ -47,7 +47,9 @@ def checked(function):
             raise ToolError(str(error)) from error
     return execute
 server = MCPServer('multisim-native', version=__version__,
-                   instructions='Edit native Multisim objects in isolated copies or explicitly attached existing windows. '
+                   instructions='Create native circuits in the task workspace and edit existing source files directly. '
+                   'Use native_open_circuit or native_create_circuit with explicit file paths from the task context. '
+                   'Use native_open_copy only for requested comparisons or diagnostics. Save to the current source; recovery files are internal. '
                    'For complete tasks, prefer native_run_workflow with dependent edits, analysis acceptance, save and export in one plan. '
                    'Use result bindings instead of intermediate ID queries and wait with native_workflow_status rather than frequent polling. '
                    'Read exact pin names before wiring; save results before closing. '
@@ -123,9 +125,16 @@ def native_diagnostics() -> dict:
 
 @server.tool()
 @checked
-def native_open_copy(source_path: str) -> dict:
-    """Start an isolated hidden Multisim process on a copy of an existing absolute .ms14 path."""
-    return {**host.open_copy(source_path),'state':host.call('circuitState',{'include_parameters':True})}
+def native_open_circuit(source_path: str) -> dict:
+    """Open an existing .ms14 file directly for editing. Reuse a single running Multisim, selecting/opening the file while preserving other documents. Normal save/close saves this file. Backups and checkpoints stay internal."""
+    return {**host.open_circuit(source_path),'state':host.call('circuitState',{'include_parameters':True})}
+
+
+@server.tool()
+@checked
+def native_open_copy(source_path: str,output_path: str | None = None) -> dict:
+    """Create an explicit comparison copy. output_path is an absolute unused .ms14 filename; when omitted the copy is saved beside the source. Ordinary editing uses native_open_circuit. Normal close saves only this copy."""
+    return {**host.open_copy(source_path,output_path),'state':host.call('circuitState',{'include_parameters':True})}
 
 
 @server.tool()
@@ -196,14 +205,14 @@ def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
 @server.tool()
 @checked
 def native_save_copy(output_path: str, overwrite: bool = False, allow_off_page: bool = False, verify: bool = True) -> dict:
-    """Save a separate absolute .ms14 file while stopped. Check all sheets for off-page content and verify the saved copy through native reopen without replacing the active document or invalidating its handles. Resize or move off-page content before saving; allow_off_page=true preserves an intentional off-page layout. verify=false skips readback. Existing output requires overwrite=true and is backed up."""
+    """Save to a specified .ms14 output while stopped. The current source path routes to normal source save without a separate overwrite flag. A different output acts as Save As in direct mode and becomes the current document; explicit copy mode preserves the original. Backups are internal. Native reopen verification is the default; allow_off_page=true permits an intentional off-page drawing. Other existing output files require overwrite=true."""
     return host.save_copy(output_path,overwrite,allow_off_page,verify)
 
 
 @server.tool()
 @checked
 def native_save_source(allow_off_page: bool = False) -> dict:
-    """Explicitly save ALL current native document edits back to the opened source .ms14: components, wires, embedded models, annotations, sheet display and simulation settings. Always back up, check external source changes and verify an independently reopened native copy before atomic replacement. Stop simulation first. A new untitled circuit needs native_save_copy; packaged templates are protected. allow_off_page=true permits an intentionally off-page drawing."""
+    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification. The user's edit request includes this save; no repeated confirmation is needed. Stop simulation first. In explicit copy mode this intentionally updates the original source. allow_off_page=true permits an intentional off-page drawing."""
     return host.save_source(allow_off_page)
 
 
@@ -227,9 +236,9 @@ def native_configure_sheet_display(show_grid: bool | None = None, show_border: b
 
 @server.tool()
 @checked
-def native_close_copy() -> dict:
-    """Close an owned hidden host, or detach from an existing user's window without closing it. Save output first; checkpoints remain on disk."""
-    return host.close()
+def native_close_copy(save_changes: bool = True) -> dict:
+    """Finish the circuit session: save pending edits by default, then close the owned host or detach from the user's existing window. A save failure keeps the session open. Explicit comparison mode saves its working copy. save_changes=false skips saving; a detached user window retains its unsaved edits. Recovery files stay internal."""
+    return host.finish(save_changes)
 
 
 @server.tool()
@@ -241,9 +250,9 @@ def native_attach(pid: int, project_index: int = 0) -> dict:
 
 @server.tool()
 @checked
-def native_create_circuit(title: str = 'Circuit') -> dict:
-    """Start a blank native 14.3 schematic in an owned host. Other Multisim windows must be closed."""
-    return {**host.create(title),'state':host.call('circuitState')}
+def native_create_circuit(output_path: str,title: str = 'Circuit') -> dict:
+    """Create a real .ms14 file at the supplied absolute output_path. Its parent directory must exist and the filename must be unused. Edit existing files with native_open_circuit. Normal saves update this file; backups and checkpoints stay internal."""
+    return {**host.create(title,output_path),'state':host.call('circuitState')}
 
 
 @server.tool()
@@ -494,9 +503,9 @@ def native_interactive_status(include_displays: bool = False) -> dict:
 @server.tool()
 @checked
 def native_configure_interactive(time_step: float | None = None, max_time_step: float | None = None,
-    real_time: bool | None = None, reset: bool = False, persist: bool = False,
+    real_time: bool | None = None, reset: bool = False, persist: bool = True,
     save_to_source: bool = False) -> dict:
-    """Read/configure native interactive simulation. Steps are seconds (1e-12 to 1); real_time enables native pacing. Default persist=false changes only subsequent MCP starts in this session. With persist=true, read/write native document settings that survive native_save_copy and ordinary GUI starts after reopening; saved_to_file=false means a save is still needed. Add save_to_source=true to explicitly replace the original .ms14 with a backup and independent native reopen verification; external source changes block replacement. This preserves numeric-analysis and other solver options, and clears temporary overrides. Change options while stopped. reset=true restores automatic steps and real-time pacing for the chosen scope. For low-frequency LEDs, 0.001 s steps may improve speed; verify the fastest relevant signals."""
+    """Read/configure native interactive simulation. Steps are seconds (1e-12 to 1); real_time enables native pacing. By default persist=true reads/writes native document settings; use persist=false only for an intentional session override. These document settings survive normal save/close and ordinary GUI starts after reopening; saved_to_file=false means a save is still needed. Add save_to_source=true to save immediately with an internal backup and independent native reopen verification; external source changes block replacement. This preserves numeric-analysis and other solver options, and clears temporary overrides. Change options while stopped. reset=true restores automatic steps and real-time pacing for the chosen scope. For low-frequency LEDs, 0.001 s steps may improve speed; verify the fastest relevant signals."""
     return host.configure_interactive(time_step,max_time_step,real_time,reset,persist=persist,save_to_source=save_to_source)
 
 
