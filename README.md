@@ -21,7 +21,7 @@ Native circuit editing, simulation and experiment verification for NI Multisim t
 | Component | Version |
 | --- | --- |
 | Operating system | Windows 10 / 11 |
-| NI Multisim | 14.2 or 14.3, Windows, 32-bit |
+| NI Multisim | 14.3, Windows, 32-bit |
 | Python | CPython 3.12, 32-bit; installed automatically |
 | Transport | STDIO |
 
@@ -30,7 +30,7 @@ Native circuit editing, simulation and experiment verification for NI Multisim t
 Run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.6/install.ps1 | iex
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.4.0/install.ps1 | iex
 ```
 
 Restart Codex. The server appears as `multisim_native`.
@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 For a custom Multisim installation directory:
 
 ```powershell
-.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.2'
+.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.3'
 ```
 
 ### DeepSeek Harness
@@ -62,9 +62,10 @@ Use `-Profile web` or `-Profile tui` for other profiles. The installer updates `
 Configure an existing installation or export its YAML patch:
 
 ```powershell
-multisim-native-mcp configure --client dsh --profile desktop
-multisim-native-mcp config --format dsh
-multisim-native-mcp doctor --connect
+$mcp = Join-Path $env:LOCALAPPDATA "MultisimNativeMCP\bin\multisim-native-mcp.exe"
+& $mcp configure --client dsh --profile desktop
+& $mcp config --format dsh
+& $mcp doctor --connect
 ```
 
 The installer reuses a compatible installed environment. Use `-Force` to reinstall, or `-ConfigPath` to select a patch file.
@@ -88,9 +89,10 @@ Add the resulting `mcpServers.multisim_native` entry to your client's MCP config
 ### Install with uv
 
 ```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.6/multisim_native_mcp-0.3.6-py3-none-any.whl
-multisim-native-mcp doctor
-multisim-native-mcp configure
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.4.0/multisim_native_mcp-0.4.0-py3-none-any.whl
+$mcp = Join-Path (uv tool dir --bin) "multisim-native-mcp.exe"
+& $mcp doctor
+& $mcp configure
 ```
 
 ## Use
@@ -111,14 +113,16 @@ See [workflows](docs/workflows.md) and the complete [divider request](skills/mul
 
 ### Agent skill
 
-The [multisim-native skill](skills/multisim-native/SKILL.md) gives agents a capability map, native editing workflows and simulation verification guidance. Install it for Codex from a source checkout:
+The [multisim-native skill](skills/multisim-native/SKILL.md) gives agents staged workflows, result bindings and simulation verification guidance. Install the release package for Codex:
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
-Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
+$skillRoot = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "skills" } else { Join-Path $env:USERPROFILE ".codex\skills" }
+$skillArchive = Join-Path $env:TEMP "multisim-native-skill-0.4.0.zip"
+Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.4.0/multisim-native-skill-0.4.0.zip" -OutFile $skillArchive
+Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 ```
 
-If `CODEX_HOME` is set, use its `skills` directory instead. Restart Codex to discover the skill. Invoke it explicitly as `$multisim-native`, or let the agent select it for Multisim tasks. It uses the configured `multisim_native` MCP connection.
+From a source checkout, copy `skills/multisim-native` into the same skills directory. Restart Codex to discover the skill. Invoke it explicitly as `$multisim-native`, or let the agent select it for Multisim tasks. It uses the configured `multisim_native` MCP connection.
 
 ### Edit an existing project
 
@@ -167,6 +171,7 @@ Example request:
 
 | Category | Operations |
 | --- | --- |
+| Workflows | Dependent stages, result bindings, acceptance, wait, cancel, resume, session revisions |
 | Sessions | Runtime checks, open copy, create project, attach, diagnostics, close |
 | Components | Library search, place, copy, delete, replace, rename |
 | Parameters | Read/write parameters and embedded SPICE models |

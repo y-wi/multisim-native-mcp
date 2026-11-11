@@ -21,7 +21,7 @@
 | 项目 | 版本 |
 | --- | --- |
 | 操作系统 | Windows 10 / 11 |
-| NI Multisim | 14.2 或 14.3，Windows，32 位 |
+| NI Multisim | 14.3，Windows，32 位 |
 | Python | CPython 3.12，32 位；安装脚本自动配置 |
 | 通信方式 | STDIO |
 
@@ -30,7 +30,7 @@
 在 PowerShell 中运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.3.6/install.ps1 | iex
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.4.0/install.ps1 | iex
 ```
 
 重启 Codex，工具列表中会出现 `multisim_native`。
@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 指定 Multisim 安装目录：
 
 ```powershell
-.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.2'
+.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.3'
 ```
 
 ### DeepSeek Harness
@@ -62,9 +62,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 为已有安装配置 DSH，或导出 YAML 补丁：
 
 ```powershell
-multisim-native-mcp configure --client dsh --profile desktop
-multisim-native-mcp config --format dsh
-multisim-native-mcp doctor --connect
+$mcp = Join-Path $env:LOCALAPPDATA "MultisimNativeMCP\bin\multisim-native-mcp.exe"
+& $mcp configure --client dsh --profile desktop
+& $mcp config --format dsh
+& $mcp doctor --connect
 ```
 
 安装脚本会复用兼容的已安装环境。使用 `-Force` 重新安装，或通过 `-ConfigPath` 指定补丁文件。
@@ -88,9 +89,10 @@ multisim-native-mcp doctor --connect
 ### 使用 uv 安装
 
 ```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.3.6/multisim_native_mcp-0.3.6-py3-none-any.whl
-multisim-native-mcp doctor
-multisim-native-mcp configure
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.4.0/multisim_native_mcp-0.4.0-py3-none-any.whl
+$mcp = Join-Path (uv tool dir --bin) "multisim-native-mcp.exe"
+& $mcp doctor
+& $mcp configure
 ```
 
 ## 使用
@@ -111,14 +113,16 @@ multisim-native-mcp configure
 
 ### Agent 技能
 
-[multisim-native skill](skills/multisim-native/SKILL.md) 提供能力速查、原生编辑流程和仿真验收方法。可在源码目录中为 Codex 安装：
+[multisim-native skill](skills/multisim-native/SKILL.md) 提供阶段工作流、结果引用和仿真验收方法。使用发行包为 Codex 安装：
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
-Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
+$skillRoot = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "skills" } else { Join-Path $env:USERPROFILE ".codex\skills" }
+$skillArchive = Join-Path $env:TEMP "multisim-native-skill-0.4.0.zip"
+Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.4.0/multisim-native-skill-0.4.0.zip" -OutFile $skillArchive
+Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 ```
 
-设置了 `CODEX_HOME` 时，改用其下的 `skills` 目录。重启 Codex 后，可通过 `$multisim-native` 显式调用，也可由 agent 在 Multisim 任务中自动选用。技能使用已配置的 `multisim_native` MCP 连接。
+从源码安装时，将 `skills/multisim-native` 复制到同一技能目录。重启 Codex 后，可通过 `$multisim-native` 显式调用，也可由 agent 在 Multisim 任务中自动选用。技能使用已配置的 `multisim_native` MCP 连接。
 
 ### 编辑已有工程
 
@@ -167,6 +171,7 @@ VCC、VEE 等电源符号可以重名。移动、旋转和连线时使用所选�
 
 | 类别 | 操作 |
 | --- | --- |
+| 工作流 | 阶段执行、结果引用、验收、等待、取消、续跑和会话版本 |
 | 会话 | 环境检查、打开副本、新建工程、附着、诊断、关闭 |
 | 元件 | 元件库检索、放置、复制、删除、替换、重命名 |
 | 参数 | 读取与修改参数、内嵌 SPICE 模型 |
