@@ -17,19 +17,21 @@
 | `session` | `mode: create/open/attach`, `title`, `source_path`, `pid`, `project_index`; first stage only |
 | `select` | `components: {name: {ref/local_ref/id, pin?, x?, y?}}`; unique native object selection |
 | `prepare` | `components: [{name, family, group, manufacturer}]` |
-| `wiring` | `autowire_on_connection`, `autowire_on_move`, `connect_touching`, `move_connection_limit` |
+| `wiring` | `autowire_on_connection`, `autowire_on_move`, `connect_touching`, `move_connection_limit`, `persist: false` (application-wide) |
+| `simulation_settings` | `scope`, `analysis_type`, typed `changes`, `solver_options`, `expected_revision` |
+| `sheet_display` | `show_grid`, `show_border`, `show_bounds` on the selected sheet |
 | `edit` | `operations: [{operation, arguments, bind?}]`; one rollback unit |
 | `netlist` | explicit source inspection; ordinary analysis checks it internally |
 | `layout` | `repair_geometry: false`, `require_no_warnings: false` |
 | `analysis` | `options`, `measurements`, `criteria` |
 | `verify` | `raw_path`, `measurements`, `criteria`; reuse an existing analysis |
 | `decode` | `raw_path`, `digits`, `expected`, `options` for scanned-display decoding |
-| `save` | absolute `output_path`, `overwrite`, `allow_off_page`, `verify` |
+| `save` | absolute `output_path` or `save_to_source: true`; `overwrite`, `allow_off_page`, `verify` (source saves always verify) |
 | `export` | absolute `output_path`, `overwrite`, `dpi`, `fit_content`, `show_frame`, `show_grid` |
 | `interactive` | time steps, `real_time`, `persist: false`, `captures`, `overwrite`, `stop_after: true` |
 | `close` | last stage; detach leaves an attached window open |
 
-`options` on an analysis uses `analysis: op/tran/ac`, `step`, `stop`, `use_initial_conditions`, `ac_sweep`, `ac_points`, `ac_start` and `ac_stop`.
+`options` on an analysis uses `analysis: op/tran/ac`, `step`, `stop`, `use_initial_conditions`, `ac_sweep`, `ac_points`, `ac_start` and `ac_stop`. Add `persist: true` to retain explicit run arguments in the native analysis profile, or `use_saved_settings: true` to execute stored analysis and solver options. Follow with `save` to write configured settings to a file. These two flags are exclusive.
 
 An edit operation's `bind` stores its result; every completed stage also binds its result to its `id`. Use `{"$ref":"lower.component.id"}`, `{"$ref":"split.junction_id"}` or `{"$ref":"dc.raw_path"}`. References must name earlier results. Array indices use dot notation. `{"$add":[value,9]}` and `{"$sub":[value,9]}` compute bounded two-term numeric offsets; they can contain references. No executable code is accepted.
 

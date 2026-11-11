@@ -8,6 +8,7 @@
 | `native_prepare_components` | components, refresh |
 | `native_session_changes` | since_revision, include_parameters |
 | `native_runtime_status` | — |
+| `native_persistence_capabilities` | — |
 | `native_diagnostics` | — |
 | `native_open_copy` | source_path |
 | `native_list_components` | — |
@@ -17,6 +18,9 @@
 | `native_connect_pins` | source_ref, source_pin, target_ref, target_pin |
 | `native_move_component` | component_ref, dx, dy |
 | `native_save_copy` | output_path, overwrite, allow_off_page, verify |
+| `native_save_source` | allow_off_page |
+| `native_simulation_settings` | scope, analysis_type, changes, solver_options, save_to_source, expected_revision |
+| `native_configure_sheet_display` | show_grid, show_border, show_bounds, save_to_source |
 | `native_close_copy` | — |
 | `native_attach` | pid, project_index |
 | `native_create_circuit` | title |
@@ -48,8 +52,8 @@
 | `native_undo` | — |
 | `native_redo` | — |
 | `native_check_netlist` | — |
-| `native_run_analysis` | analysis, step, stop, use_initial_conditions |
-| `native_start_analysis` | analysis, step, stop, use_initial_conditions |
+| `native_run_analysis` | analysis, step, stop, use_initial_conditions, persist, save_to_source, use_saved_settings |
+| `native_start_analysis` | analysis, step, stop, use_initial_conditions, persist, save_to_source, use_saved_settings |
 | `native_analysis_status` | — |
 | `native_control_analysis` | action |
 | `native_control_interactive` | action, wait_timeout |
@@ -58,7 +62,7 @@
 | `native_export_interactive_image` | output_path, overwrite, dpi, scale, region, fit_content, padding, show_frame, show_grid, active_component, wait_timeout |
 | `native_read_waveform` | raw_path, offset, limit, plot_index |
 | `native_export_image` | output_path, overwrite, dpi, scale, region, fit_content, padding, show_frame, show_grid |
-| `native_run_ac_sweep` | sweep, points, start_hz, stop_hz |
+| `native_run_ac_sweep` | sweep, points, start_hz, stop_hz, persist, save_to_source, use_saved_settings |
 | `native_measure_waveform` | raw_path, measurements |
 | `native_verify_waveform` | raw_path, measurements, criteria |
 | `native_decode_seven_segment` | raw_path, digits, expected, start, stop, threshold, active_high, select_threshold, select_active_high, settling, min_dwell |
@@ -72,7 +76,7 @@
 | `native_check_layout` | — |
 | `native_plan_wire_route` | wire_id, clearance |
 | `native_auto_route_wire` | wire_id, clearance, engine |
-| `native_configure_wiring` | autowire_on_connection, autowire_on_move, connect_touching, move_connection_limit, reset |
+| `native_configure_wiring` | autowire_on_connection, autowire_on_move, connect_touching, move_connection_limit, reset, persist |
 | `native_connect_touching` | component_refs |
 
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
@@ -109,3 +113,5 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 `native_interactive_status(include_displays: true)` reads native `SEVEN_SEG_COM_A` segment states in `abcdefg` order. `native_export_interactive_image` captures those actual states and the circuit through the native bitmap renderer. Set `active_component` to a display reference to wait for its lit digit. Paused simulation preserves one scan phase; resume before waiting for a different digit. Multiplexed displays illuminate in successive phases, so capture each digit separately. Each image returns `capture_mode: instantaneous`, `display_states` and simulation status; frames are not accumulated into a simultaneous display.
 
 `native_interactive_status(include_displays: true)` 读取原生 `SEVEN_SEG_COM_A` 的段状态，顺序为 `abcdefg`。`native_export_interactive_image` 通过原生位图引擎导出实际显示状态和电路；`active_component` 可指定要等待点亮的数码管。暂停会保留某个位选阶段，等待另一位前先恢复仿真。动态扫描电路逐位点亮，应分别截取各位。每张图片返回 `capture_mode: instantaneous`、`display_states` 和仿真状态。
+
+See [persistence ownership](persistence.md) for advanced native settings, source saves, application preferences and external-only capabilities.

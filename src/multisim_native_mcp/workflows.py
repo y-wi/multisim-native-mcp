@@ -162,6 +162,10 @@ class WorkflowManager:
                 if not source.is_absolute() or source.suffix.lower()!='.ms14' or not source.is_file():
                     issues.append({'stage':step['id'],'path':str(source),'error':'Choose an existing absolute .ms14 source'})
         for step in steps:
+            if step['kind']=='save' and step.get('save_to_source'):
+                if not protected and not any(s['kind']=='session' and s['mode']=='attach' for s in steps):
+                    issues.append({'stage':step['id'],'error':'Source save requires an existing source circuit'})
+                continue
             outputs=[step] if step['kind'] in ('save','export') else step.get('captures',[])
             for output in outputs:
                 path=Path(output['output_path'])
@@ -375,9 +379,12 @@ class WorkflowManager:
             if issues:raise NeedsInput('Component selection requires unique matches',{'issues':issues})
             return {'components':selected}
         if kind=='wiring':
-            result=self.host.call('wiringOptions',a)
+            persist=a.pop('persist',False)
+            result=self.host.configure_wiring(**a,persist=True) if persist else self.host.call('wiringOptions',a)
             record['wiring_options']={k:result[k] for k in ('autowire_on_connection','autowire_on_move','connect_touching','move_connection_limit')}
             return result
+        if kind=='simulation_settings':return self.host.simulation_settings(**a)
+        if kind=='sheet_display':return self.host.configure_sheet_display(**a)
         if kind=='edit':
             # Keep intra-stage references unresolved until their native operation executes.
             ops=copy.deepcopy(stage['operations']);self._preflight_edits(ops,record['bindings'])
@@ -412,7 +419,9 @@ class WorkflowManager:
             result=decode_display(parse_raw(Path(a['raw_path'])),a['digits'],a.get('expected'),**a.get('options',{}))
             if not result['passed']:raise NeedsInput('Display acceptance failed',result)
             return result
-        if kind=='save':return self.host.save_copy(**a)
+        if kind=='save':
+            if a.pop('save_to_source',False):return self.host.save_source(allow_off_page=a.get('allow_off_page',False))
+            return self.host.save_copy(**a)
         if kind=='export':return self.host.export_image(**a)
         if kind=='interactive':
             if a.get('persist'):
@@ -478,12 +487,12 @@ class WorkflowManager:
         for stage in record['plan']['steps']:
             if stage['id'] not in completed:continue
             value=record['bindings'][stage['id']]
-            if stage['kind']=='analysis':outputs[stage['id']]={k:value[k] for k in ('measurements','passed','criteria','raw_path','csv_path','netlist_path') if k in value}
-            elif stage['kind'] in ('save','export'):outputs[stage['id']]={k:value[k] for k in ('path','verification','page_check','width','height') if k in value}
+            if stage['kind']=='analysis':outputs[stage['id']]={k:value[k] for k in ('measurements','passed','criteria','raw_path','csv_path','netlist_path','document_settings') if k in value}
+            elif stage['kind'] in ('save','export'):outputs[stage['id']]={k:value[k] for k in ('path','backup','saved_to_source','verification','page_check','width','height') if k in value}
             elif stage['kind']=='interactive':outputs[stage['id']]={'passed':value['passed'],
                 **({'configuration':value['configuration']} if 'configuration' in value else {}),
                 'frames':[{k:f[k] for k in ('path','display_states','capture_mode') if k in f} for f in value['frames']]}
-            elif stage['kind'] in ('layout','verify','decode','prepare'):outputs[stage['id']]=value
+            elif stage['kind'] in ('layout','verify','decode','prepare','simulation_settings','sheet_display'):outputs[stage['id']]=value
         result['results']=outputs
         if self.record and self.record['id']==identifier and not live:
             try:self.store.write(self.record)

@@ -128,3 +128,5 @@ Analysis uses the generated SPICE source. Waveform variables and summaries inclu
 For a 12 V divider with two 1 kΩ resistors, verify both the 6 V midpoint and the −0.006 A source current against the actual resistance parameters and SPICE source.
 
 12 V、两只 1 kΩ 的分压电路应结合真实阻值参数和 SPICE 源码，同时验证中点 6 V 与电源电流 −0.006 A。
+
+Add `persist:true` to `native_configure_wiring` to commit native application-wide preferences and verify reload. They survive a new Multisim process but are not `.ms14` content. To retain selected-sheet grid, border or bounds, use `native_configure_sheet_display` and save. Page-name edits now update the saved native page name, while the root window caption follows the filename. General source saves verify annotations and embedded models; model edits refresh all affected labels before saving. See [persistence ownership](persistence.md).

@@ -39,3 +39,5 @@ Set `persist: true` on an `interactive` stage to write its steps and pacing into
 `stats.external_calls` counts workflow API calls; `native_calls` and `native_seconds` measure host RPC work. Model reasoning turns require client-side measurements. See the self-contained [workflow skill reference](../skills/multisim-native/references/workflows.md) for schemas and examples.
 
 `stats.external_calls` 统计工作流 API 调用次数，`native_calls`、`native_seconds` 统计原生主机 RPC。模型推理轮次需由客户端记录。完整字段与示例见 [工作流 skill 参考](../skills/multisim-native/references/workflows.md)。
+
+Version 0.5.0 provides `simulation_settings` (`scope`, `analysis_type`, `changes`, `solver_options`, `expected_revision`) and `sheet_display` (`show_grid`, `show_border`, `show_bounds`) stages. Analysis options accept `persist:true` or `use_saved_settings:true`. A save stage accepts `save_to_source:true` instead of `output_path`, always with backup and native reopen verification. A wiring stage's `persist:true` commits application-wide preferences, separately from the circuit file. See [persistence ownership](persistence.md).

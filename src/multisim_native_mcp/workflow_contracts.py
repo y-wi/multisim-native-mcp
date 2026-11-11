@@ -5,6 +5,7 @@ import math
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .contracts import AcceptanceCriterion
+from .settings import SimulationSettingChange,Scalar
 
 
 class Contract(BaseModel):
@@ -85,6 +86,23 @@ class WiringStage(Stage):
     autowire_on_move: bool | None = None
     connect_touching: bool | None = None
     move_connection_limit: int | None = Field(default=None, ge=1, le=10000)
+    persist: bool = False
+
+
+class SimulationSettingsStage(Stage):
+    kind: Literal['simulation_settings']
+    scope: Literal['interactive','analysis'] = 'interactive'
+    analysis_type: str = 'TRAN'
+    changes: list[SimulationSettingChange] = Field(default_factory=list,max_length=100)
+    solver_options: dict[str,Scalar] = Field(default_factory=dict,max_length=100)
+    expected_revision: str | None = None
+
+
+class SheetDisplayStage(Stage):
+    kind: Literal['sheet_display']
+    show_grid: bool | None = None
+    show_border: bool | None = None
+    show_bounds: bool | None = None
 
 
 class NetlistStage(Stage):
@@ -106,9 +124,12 @@ class AnalysisOptions(Contract):
     ac_points: int = Field(default=20, ge=1, le=100000)
     ac_start: float = Field(default=1, gt=0)
     ac_stop: float = Field(default=100000, gt=0, le=1e12)
+    persist: bool = False
+    use_saved_settings: bool = False
 
     @model_validator(mode='after')
     def ranges(self):
+        if self.persist and self.use_saved_settings:raise ValueError('Choose persist or use_saved_settings')
         if self.step > self.stop or self.stop / self.step > 100000 * (1 + 1e-12):
             raise ValueError('Require step <= stop and at most 100000 requested steps')
         if self.ac_start >= self.ac_stop:
@@ -185,10 +206,17 @@ class DecodeStage(Stage):
 
 class SaveStage(Stage):
     kind: Literal['save']
-    output_path: str
+    output_path: str | None = None
+    save_to_source: bool = False
     overwrite: bool = False
     allow_off_page: bool = False
     verify: bool = True
+
+    @model_validator(mode='after')
+    def target(self):
+        if bool(self.output_path)==self.save_to_source:raise ValueError('Choose output_path or save_to_source=true')
+        if self.save_to_source and not self.verify:raise ValueError('Source saves always require verification')
+        return self
 
 
 class ExportStage(Stage):
@@ -223,7 +251,7 @@ class CloseStage(Stage):
     kind: Literal['close']
 
 
-WorkflowStage = Annotated[SessionStage | PrepareStage | SelectStage | EditStage | WiringStage | NetlistStage |
+WorkflowStage = Annotated[SessionStage | PrepareStage | SelectStage | EditStage | WiringStage | SimulationSettingsStage | SheetDisplayStage | NetlistStage |
                           LayoutStage | AnalysisStage | VerifyStage | DecodeStage | SaveStage |
                           ExportStage | InteractiveStage | CloseStage, Field(discriminator='kind')]
 

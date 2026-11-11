@@ -2,7 +2,7 @@ import pytest
 from PIL import Image, ImageChops
 
 from multisim_native_mcp.layout import check_layout
-from multisim_native_mcp.paths import RESOURCE_DIR
+from multisim_native_mcp.bridge import editor_script
 from multisim_native_mcp.service import EditorService
 
 pytestmark=pytest.mark.native
@@ -30,7 +30,7 @@ editorHandlers.legacyGeometry=args=>{
 editorHandlers.largeState=()=>({wires:Array.from({length:1500},(_,i)=>({id:String(i),source:{id:'a',position:{x:i,y:0}},target:{id:'b',position:{x:i,y:9}},points:[{x:i,y:0},{x:i,y:9}]}))});
 '''
         h.agent.exports_sync.close();h.agent.unload()
-        code=(RESOURCE_DIR/'host_agent.js').read_text()+'\n'+(RESOURCE_DIR/'editor_agent.js').read_text()+'\n'+extra
+        code=editor_script()+'\n'+extra
         h.agent=h.session.create_script(code,runtime='v8');h.agent.on('message',h._message);h.agent.load()
         h.call('legacyGeometry',{'junction':junction['junction_id']})
         def state():return h.call('circuitState')

@@ -5,7 +5,8 @@
 Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
 - Typed workflows with result bindings, native acceptance, recovery and artifact delivery.
-- 72 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- 76 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- Persistent native simulation settings, solver options and verified saves back to the source file; see [persistence ownership](docs/persistence.md).
 - Interactive simulation with configurable time steps, real-time pacing and actual display captures.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
 - Batch edits, checkpoints, undo, redo and native save/reopen.

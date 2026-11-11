@@ -51,6 +51,16 @@ Choose time steps for the fastest relevant signal. A 1 ms step with real-time pa
 
 For permanent simulation settings, use `native_configure_interactive(persist: true, ...)` and then save, or add `save_to_source: true` when the user explicitly requests updating the original file. Source saves include a backup, external-edit detection and native reopen verification. `saved_to_file: false` means the document configuration still needs saving. Temporary session settings remain the default. A workflow `interactive` stage accepts `persist: true`; follow it with a `save` stage for a persistent output file.
 
+## Persistent configuration and source saves
+
+Use `native_simulation_settings` to read actual native analysis types, scalar paths, types, solver-option enabled states and revision before editing. It supports `interactive` and `analysis` scopes. Supply `solver_options` for tolerances, integration, convergence, temperature and flags; the server also selects native custom settings so defaults cannot mask the values. `null`/`false` disables solver overrides. An integer path token selects a duplicate native field and requires `expected_revision`. Existing scalar fields are editable; empty lists and new native analysis instances are not created. Numeric execution supports OP/AC/TRAN; other existing profile settings can be saved for Multisim.
+
+Use `native_save_source` when the user requests updating the opened original circuit. It saves all current document edits with a backup, conflict checks and independent native reopen verification. `native_save_copy` continues to protect the original. New circuits need a separate save and reopening that saved file before source saves. For single configuration transactions, `save_to_source: true` is available on simulation and sheet-display settings. `saved_to_file: false` means that call did not write a file.
+
+Numeric analysis tools accept `persist: true` to retain run arguments in the native analysis profile, `save_to_source: true` to also save the source, or `use_saved_settings: true` to execute the stored profile and solver options through the native compiler. Workflow `simulation_settings` and `sheet_display` stages configure the document; `save` accepts `save_to_source: true` instead of `output_path`. Analysis-stage options accept `persist` or `use_saved_settings`.
+
+Use `native_configure_sheet_display` for saved selected-sheet grid, border and bounds. Export rendering flags and DPI/crop remain external. `native_configure_wiring(persist: true)` commits application-wide native preferences; these are not circuit-file fields. `native_persistence_capabilities` classifies every tool's ownership. Runtime clock/animation phase, undo stacks, RAW/CSV/PNG outputs and MCP experiment/workflow records are not embedded circuit settings. Title-block visibility is derived from native title-block objects after loading; its temporary export flag is not a portable document boolean.
+
 ## Deliver
 
 Report the saved circuit and requested exports, measured acceptance and any remaining failed criterion. Distinguish numeric verification from visual inspection. If the user will validate simulation themselves, deliver the edit and requested geometry checks without adding experiments.

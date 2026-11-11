@@ -4,6 +4,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes as w
 import csv
+import hashlib
 from contextlib import contextmanager
 import json
 import math
@@ -104,13 +105,15 @@ class EditorService(NativeHost):
         def endpoint(value):return {k:value[k] for k in ('ref','pin','x','y') if k in value}
         def order(values):return sorted(values,key=lambda v:json.dumps(v,sort_keys=True))
         return clean([{'sheet_index':s['sheet_index'],
+                      'page_name':s['sheets'][s['sheet_index']].get('page'),
                       'page':{k:s['page'][k] for k in ('width','height')},
                       'components':order([{'ref':c['ref'],'transform':c['transform'],
                           'pins':order([{'name':p['name'],'x':p['x'],'y':p['y']} for p in c['pins']]),
                           'labels':[{k:l[k] for k in ('kind','text', 'transform' if 'transform' in l else 'center')} for l in c.get('labels',[])],
-                          'parameters':c.get('parameters',[])} for c in s['components']]),
+                          'parameters':c.get('parameters',[]),'model_text':c.get('model_text')} for c in s['components']]),
                       'wires':order([{'source':endpoint(w['source']),'target':endpoint(w['target']),'points':w['points']} for w in s['wires']]),
-                      'content_bounds':s['content_bounds']} for s in sheets])
+                      'content_bounds':s['content_bounds'],'annotations':order(s.get('annotations',[])),
+                      'sheet_display':s.get('sheet_display')} for s in sheets])
 
     def save_copy(self,output_path,overwrite=False,allow_off_page=False,verify=True):
         if not isinstance(allow_off_page,bool) or not isinstance(verify,bool):raise ValueError('allow_off_page and verify must be boolean')
@@ -121,7 +124,7 @@ class EditorService(NativeHost):
             if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before saving the circuit')
             self.call('synchronizeGraphics')
             simulation_settings=self.call('simulationSettingsText') if verify else None
-            sheets=self.call('projectCircuitState',{'include_parameters':verify})['states']
+            sheets=self.call('projectCircuitState',{'include_parameters':verify,'include_persistence':verify})['states']
             outside=[]
             for state in sheets:
                 b=state['content_bounds'];p=state['page']['bounds']
@@ -135,7 +138,7 @@ class EditorService(NativeHost):
                 verification=self.folder()/('verify-'+uuid.uuid4().hex+'.ms14')
                 try:
                     shutil.copy2(result['path'],verification)
-                    reopened=self.call('verifySavedCopy',{'path':str(verification),'include_parameters':True,'include_simulation_settings':True})
+                    reopened=self.call('verifySavedCopy',{'path':str(verification),'include_parameters':True,'include_persistence':True,'include_simulation_settings':True})
                     expected=self.saved_signature(sheets);actual=self.saved_signature(reopened['states'])
                     if simulation_settings!=reopened['simulation_settings']:
                         raise RuntimeError('Saved simulation settings differ after native reopen')
@@ -151,7 +154,7 @@ class EditorService(NativeHost):
             else:result['verification']={'reopened':False}
             return result
 
-    def _save_source(self):
+    def _save_source(self,allow_off_page=False):
         """Explicit source replacement, only after verified native save and conflict checks."""
         if not self.source or not self.source.is_file():raise ValueError('No existing source file to save')
         source=self.source
@@ -161,7 +164,7 @@ class EditorService(NativeHost):
         staged=source.with_name('save-source-'+uuid.uuid4().hex+'.ms14')
         original_path=self.call('inspect')['projectPath'];backup=None;replaced=False
         try:
-            result=self.save_copy(str(staged),verify=True)
+            result=self.save_copy(str(staged),verify=True,**({'allow_off_page':True} if allow_off_page else {}))
             if sha256(source)!=self.source_hash:raise RuntimeError('Source changed during verification; source was not overwritten')
             backup=source.with_name(source.name+'.'+uuid.uuid4().hex[:8]+'.bak')
             shutil.copy2(source,backup)
@@ -177,6 +180,93 @@ class EditorService(NativeHost):
             self.call('setProjectPath',{'path':original_path})
             raise
         finally:staged.unlink(missing_ok=True)
+
+    def save_source(self,allow_off_page=False):
+        if not isinstance(allow_off_page,bool):raise ValueError('allow_off_page must be boolean')
+        with self.lock:return self._save_source(allow_off_page)
+
+    def configure_wiring(self,autowire_on_connection=None,autowire_on_move=None,connect_touching=None,
+                         move_connection_limit=None,reset=False,persist=False):
+        if not isinstance(reset,bool) or not isinstance(persist,bool):raise ValueError('reset and persist must be boolean')
+        options={}
+        for key,value in [('autowire_on_connection',autowire_on_connection),('autowire_on_move',autowire_on_move),('connect_touching',connect_touching)]:
+            if value is not None:
+                if not isinstance(value,bool):raise ValueError(key+' must be boolean')
+                options[key]=value
+        if move_connection_limit is not None:
+            if isinstance(move_connection_limit,bool) or not isinstance(move_connection_limit,int) or not 1<=move_connection_limit<=10000:
+                raise ValueError('move_connection_limit must be an integer from 1 to 10000')
+            options['move_connection_limit']=move_connection_limit
+        if reset and (options or persist):raise ValueError('Use reset alone to restore temporary wiring settings')
+        with self.lock:
+            if options or reset or persist:
+                if self.interactive_status()['state_name'] in ('running','paused'):raise RuntimeError('Stop interactive simulation before changing wiring options')
+            result=self.call('wiringOptions',{'reset':True} if reset else options)
+            if persist:return self.call('persistWiringOptions')
+            return {**result,'persisted_in_circuit':False,'saved_to_application':False}
+
+    def configure_sheet_display(self,save_to_source=False,**options):
+        if not isinstance(save_to_source,bool):raise ValueError('save_to_source must be boolean')
+        allowed={'show_grid','show_border','show_bounds'}
+        options={k:v for k,v in options.items() if v is not None}
+        if set(options)-allowed or any(not isinstance(v,bool) for v in options.values()):raise ValueError('Sheet display options must be known booleans')
+        with self.lock:
+            mutating=bool(options or save_to_source)
+            if mutating and self.interactive_status()['state_name'] in ('running','paused'):raise RuntimeError('Stop interactive simulation before changing sheet display')
+            checkpoint=self.checkpoint() if mutating else None
+            try:
+                result=self.call('sheetDisplaySettings',options)
+                if result['changed']:self.call('markModified')
+                if save_to_source:result['save']=self._save_source()
+            except Exception:
+                if checkpoint:self.restore(checkpoint)
+                raise
+            if checkpoint:self.undo_stack.append(checkpoint);self.redo_stack.clear()
+            return {**result,'saved_to_file':save_to_source,'persisted_in_circuit':True}
+
+    def simulation_settings(self,scope='interactive',analysis_type='TRAN',changes=None,solver_options=None,
+                            save_to_source=False,expected_revision=None):
+        from .settings import normalize_setting_changes
+        changes=normalize_setting_changes(changes)
+        if any(isinstance(token,int) for c in changes for token in c['path']) and expected_revision is None:
+            raise ValueError('Indexed native field paths require expected_revision from the current catalog')
+        if scope not in ('interactive','analysis'):raise ValueError('Choose interactive or analysis scope')
+        if not isinstance(analysis_type,str) or not re.fullmatch(r'[A-Za-z0-9_]{1,64}',analysis_type):raise ValueError('Invalid native analysis type')
+        analysis_type=analysis_type.upper()
+        if not isinstance(save_to_source,bool):raise ValueError('save_to_source must be boolean')
+        if solver_options is None:solver_options={}
+        if not isinstance(solver_options,dict) or len(solver_options)>100:raise ValueError('solver_options must be a mapping of at most 100 options')
+        for key,value in solver_options.items():
+            if not isinstance(key,str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',key):raise ValueError('Invalid solver option name')
+            if value is not None and (not isinstance(value,(str,bool,int,float)) or isinstance(value,float) and not math.isfinite(value)):
+                raise ValueError('Solver options require finite scalar values or null to disable')
+        with self.lock:
+            mutating=bool(changes or solver_options or save_to_source)
+            if mutating:
+                if self.interactive_status()['state_name'] in ('running','paused'):raise RuntimeError('Stop interactive simulation before changing document settings')
+            text=self.call('simulationSettingsText');revision=hashlib.sha256(text.encode('utf-8')).hexdigest()
+            if expected_revision is not None and expected_revision!=revision:raise RuntimeError('Simulation settings changed; read the current catalog before updating')
+            args={'scope':scope,'analysis_type':analysis_type,'changes':changes,'solver_options':solver_options}
+            if expected_revision is not None:args['expected_text']=text
+            checkpoint=self.checkpoint() if mutating else None
+            temporary=self.call('interactiveOptions').get('configuration',{}) if mutating and scope=='interactive' else {}
+            try:
+                result=self.call('documentSimulationSettings',args)
+                updated_revision=hashlib.sha256(result.pop('_simulation_text').encode('utf-8')).hexdigest()
+                if mutating:
+                    if result['changed']:self.call('markModified')
+                    if scope=='interactive':self.call('interactiveOptions',{'reset':True})
+                    if save_to_source:result['save']=self._save_source()
+            except Exception as error:
+                if checkpoint:
+                    self.restore(checkpoint)
+                    if temporary:self.call('interactiveOptions',{'configuration':temporary})
+                    raise NativeEditError(str(error),{'rolled_back':True,'handles_invalidated':True,'rollback_checkpoint':checkpoint['path']}) from error
+                raise
+            if checkpoint:self.undo_stack.append(checkpoint);self.redo_stack.clear()
+            result.update(revision=updated_revision,
+                          saved_to_file=save_to_source,persisted_in_circuit=True,handles_invalidated=False)
+            return result
 
     def checkpoint(self):
         path=self.folder()/('checkpoint-'+uuid.uuid4().hex+'.ms14')
@@ -439,19 +529,21 @@ class EditorService(NativeHost):
                                  interactive=True,active_component=active_component,wait_timeout=wait_timeout)
 
     def run_analysis(self, analysis='op', step=1e-5, stop=0.01, use_initial_conditions=False,
-                     ac_sweep='dec',ac_points=20,ac_start=1.,ac_stop=100000.):
-        if analysis not in ('op','tran','ac'): raise ValueError('analysis must be op, tran or ac')
-        if not (math.isfinite(step) and math.isfinite(stop) and 0<step<=stop<=100 and stop/step<=100000*(1+1e-12)):
-            raise ValueError('Require 0 < step <= stop <= 100 seconds and at most 100000 requested steps')
-        if not isinstance(use_initial_conditions,bool):raise ValueError('use_initial_conditions must be boolean')
-        if use_initial_conditions and analysis!='tran':raise ValueError('Initial conditions apply to transient analysis')
-        if ac_sweep not in ('lin','dec','oct') or not isinstance(ac_points,int) or not 1<=ac_points<=100000:
-            raise ValueError('Choose lin, dec or oct and 1 to 100000 points')
-        if not (math.isfinite(ac_start) and math.isfinite(ac_stop) and 0<ac_start<ac_stop<=1e12):
-            raise ValueError('Require 0 < AC start < stop <= 1e12 Hz')
-        estimated=ac_points if ac_sweep=='lin' else ac_points*math.log(ac_stop/ac_start,10 if ac_sweep=='dec' else 2)+1
-        if estimated>100000:raise ValueError('AC sweep exceeds 100000 requested points')
+                     ac_sweep='dec',ac_points=20,ac_start=1.,ac_stop=100000.,*,persist=False,save_to_source=False,use_saved_settings=False):
+        from .settings import validate_analysis_options
+        validate_analysis_options(analysis,step,stop,use_initial_conditions,ac_sweep,ac_points,ac_start,ac_stop,
+                                  persist,save_to_source,use_saved_settings)
         with self.lock:
+            saved=None;native_commands=None
+            if persist:
+                from .settings import analysis_changes
+                saved=self.simulation_settings('analysis',analysis.upper(),
+                    analysis_changes(analysis,step,stop,use_initial_conditions,ac_sweep,ac_points,ac_start,ac_stop),save_to_source=save_to_source)
+            if persist or use_saved_settings:
+                from .settings import saved_execution
+                if saved is None:saved=self.simulation_settings('analysis',analysis.upper())
+                saved_execution(saved)
+                native_commands=self.call('documentAnalysisCommands',{'scope':'analysis','analysis_type':analysis.upper()})
             stem=self.folder()/('analysis-'+uuid.uuid4().hex)
             diagnostic=stem.with_suffix('.json');record={'analysis':analysis,'status':'running','use_initial_conditions':use_initial_conditions}
             diagnostic.write_text(json.dumps(record,indent=2),encoding='utf-8')
@@ -463,7 +555,8 @@ class EditorService(NativeHost):
                 self.numeric_session_used=True
                 with self.analysis_transport(stem) as transport:
                     result=self.call('simulate',{'analysis':analysis,'step':step,'stop':stop,'use_initial_conditions':use_initial_conditions,
-                        'ac_sweep':ac_sweep,'ac_points':ac_points,'ac_start':ac_start,'ac_stop':ac_stop,'source_path':str(transport.with_suffix('.cir'))})
+                        'ac_sweep':ac_sweep,'ac_points':ac_points,'ac_start':ac_start,'ac_stop':ac_stop,'source_path':str(transport.with_suffix('.cir')),
+                        **({'saved_commands':native_commands} if native_commands else {})})
                     record['native']=result
                     self.analysis_started.clear()
                     if result.get('failed'):
@@ -486,17 +579,28 @@ class EditorService(NativeHost):
             return {'analysis':analysis,'plot':data['plot'],'points':data['points'],'vectors':summary,'unit_system':'SI',
                     'preview':data['rows'][:10],'raw_path':str(raw),'csv_path':str(csv_path),
                     'netlist_path':str(stem.with_suffix('.cir')),'native_result':result,'diagnostic_path':str(diagnostic),
-                    'handles_invalidated':netlist['handles_invalidated']}
+                    'handles_invalidated':netlist['handles_invalidated'],
+                    **({'document_settings':{'revision':saved['revision'],'saved_to_file':saved['saved_to_file'],
+                        'analysis_type':saved['analysis_type'],'commands':native_commands,**({'save':saved['save']} if 'save' in saved else {})}} if saved else {})}
 
-    def start_analysis(self,analysis='tran',step=1e-5,stop=0.01,use_initial_conditions=False):
+    def start_analysis(self,analysis='tran',step=1e-5,stop=0.01,use_initial_conditions=False,*,persist=False,save_to_source=False,use_saved_settings=False):
+        from .settings import validate_analysis_options,analysis_changes
+        validate_analysis_options(analysis,step,stop,use_initial_conditions,persist=persist,save_to_source=save_to_source,use_saved_settings=use_saved_settings)
         if not self.agent: raise RuntimeError('Open a native project first')
         if self.analysis_job and self.analysis_job['status'] in ('running','pause_requested','stop_requested'):
             raise RuntimeError('An analysis is already running')
+        prepared=None
+        if persist:
+            prepared=self.simulation_settings('analysis',analysis.upper(),
+                analysis_changes(analysis,step,stop,use_initial_conditions,'dec',20,1.,100000.),save_to_source=save_to_source)
         self.analysis_started.clear()
         job={'id':uuid.uuid4().hex,'status':'running','started':time.time()};self.analysis_job=job
         def run():
             try:
-                job['result']=self.run_analysis(analysis,step,stop,use_initial_conditions)
+                job['result']=self.run_analysis(analysis,step,stop,use_initial_conditions,use_saved_settings=persist or use_saved_settings)
+                if prepared:
+                    job['result']['document_settings'].update(saved_to_file=prepared['saved_to_file'],
+                        **({'save':prepared['save']} if 'save' in prepared else {}))
                 job['status']='stopped' if job.get('stop_requested') else 'complete'
             except Exception as error:
                 job['error']=str(error);job['status']='stopped' if job.get('stop_requested') else 'failed'

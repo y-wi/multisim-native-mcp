@@ -478,6 +478,13 @@ function setModelText(args) {
   } finally {selectedSheetId=selected;cachedDiagram=null;}
   method('CIRCEXP.dll','?SetString@CiaCString@@','int',['pointer','pointer'])(attr,Memory.allocUtf16String(args.text));
   method('CIRCEXP.dll','?SetChanged@CiModel@@','void',['pointer','int'])(ptr(info.model),1);
+  try {
+    for(const sheet of readSheets()){
+      selectSheet({index:sheet.index});
+      for(const c of components().components)if(method('CIRCEXP.dll','?GetModel@CiElement@@','pointer',['pointer'])(ciObject(ptr(c.id))).toString()===info.model)
+        refreshComponentValue(c.id);
+    }
+  }finally{selectedSheetId=selected;cachedDiagram=null;activateSheet();}
   return {before:entry.text,after:modelInfo(args).attributes.find(a=>a.index===1).text,affected_refs:affected};
 }
 function createSubcircuit(args) {
@@ -524,6 +531,9 @@ function createPort(args) {
 }
 function sheetTitle(args) {
   const name=pathString(args.title);
+  // The root window caption follows the filename on reopen. Persist the native
+  // page name as well; changing only SetTitle previously changed a live caption.
+  method('DrwEngine.dll','?SetPageName@CDrwSubSheet@@','void',['pointer','pointer','uint8'])(diagram().sheet,name,1);
   method('DrwEngine.dll','?SetTitle@CDrwSubSheet@@','void',['pointer','pointer','uint8'])(diagram().sheet,name,0);
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(name);return {sheets:readSheets()};
 }
@@ -575,6 +585,15 @@ function wiringOptions(args={}) {
   return {...read(),backend:'multisim-native',scope:'session',restored_on_close:true};
 }
 function closeWiringOptions(){if(originalWiringOptions)wiringOptions({reset:true});}
+function persistWiringOptions() {
+  const before=wiringOptions(),keys=['autowire_on_connection','autowire_on_move','connect_touching','move_connection_limit'];
+  method('SCH_CAP.dll','?SaveSettings@CSCH_CAPDocTypeSettings@@','void',['pointer'])(wiringSettings());
+  method('SCH_CAP.dll','?LoadSettings@CSCH_CAPDocTypeSettings@@','void',['pointer'])(wiringSettings());
+  const after=wiringOptions();
+  if(keys.some(k=>before[k]!==after[k]))throw new Error('Native application wiring preferences failed reload verification');
+  originalWiringOptions=null;
+  return {...after,scope:'application',persisted_in_circuit:false,saved_to_application:true,restored_on_close:false};
+}
 function temporaryWiring(options,callback){
   const before=wiringOptions();
   try{wiringOptions(options);return callback();}
@@ -1049,7 +1068,11 @@ function simulate(args) {
     sent=shell('load-netlist','source "'+args.source_path.replace(/\\/g,'/')+'"').result;
   } else sent=method('SpiceifsSch.dll','?SendNetlist@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer','uint8','pointer'])(session,stdString(text.content+'\n.end\n',false),0,stdString('',true));
   if(trace.length&&trace[trace.length-1].errors.length)return {failed:true,stage:'load-netlist',trace,...simulationInfo()};
-  const command=args.analysis==='op'?'op':args.analysis==='ac'?`ac ${args.ac_sweep} ${args.ac_points} ${args.ac_start} ${args.ac_stop}`:`tran ${args.step} ${args.stop}${args.use_initial_conditions?' uic':''}`;
+  if(args.saved_commands&&args.saved_commands.options_command.trim()){
+    const configured=shell('saved-options',args.saved_commands.options_command);
+    if(configured.result!==0||configured.errors.length)return {failed:true,stage:'saved-options',trace,...simulationInfo()};
+  }
+  const command=args.saved_commands?args.saved_commands.command:args.analysis==='op'?'op':args.analysis==='ac'?`ac ${args.ac_sweep} ${args.ac_points} ${args.ac_start} ${args.ac_stop}`:`tran ${args.step} ${args.stop}${args.use_initial_conditions?' uic':''}`;
   send({analysis_started:true,command});
   const completed=shell('analysis',command);
   const errors=trace.filter(t=>t.stage==='load-netlist'||t.stage==='analysis').flatMap(t=>t.errors);
@@ -1095,7 +1118,8 @@ function circuitState(args={}) {
   const state=componentBounds(),page=pageGeometry();
   for(const c of state.components)c.labels=componentLabels({ref:c.id},c).labels;
   if(args.include_parameters)for(const c of state.components){const p=parameterInfo({ref:c.id},c);c.parameters=p.parameters;c.library={family:p.info[0],name:p.info[1],symbol_family:p.info[2],model:p.info[3]};}
-  return {sheets:readSheets(),page,components:state.components,wires:wires().wires,content_bounds:contentBounds()};
+  return {sheets:readSheets(),page,components:state.components,wires:wires().wires,content_bounds:contentBounds(),
+    ...(args.include_persistence?persistenceSheetData(state):{})};
 }
 function projectCircuitState(args={}) {
   const previous=selectedSheetId,states=[],sheets=readSheets();

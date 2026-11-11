@@ -85,6 +85,19 @@ def test_simulation_settings_readback_failure_restores_output(tmp_path):
     assert output.read_bytes()==b'previous'
 
 
+@pytest.mark.parametrize('field',['model_text','annotations','sheet_display','page_name'])
+def test_saved_signature_detects_other_persistence_gaps(field):
+    expected=scene();expected['sheets'][0]['page']='Saved page'
+    expected['components']=[{'ref':'D1','transform':[1,0,0,1,100,100],'pins':[],'model_text':'.model D custom'}]
+    expected.update(annotations=[{'text':'Saved note','transform':[1,0,0,1,90,90]}],sheet_display={'Grid ON':0})
+    actual=copy.deepcopy(expected)
+    if field=='model_text':actual['components'][0]['model_text']='lost'
+    elif field=='page_name':actual['sheets'][0]['page']='lost'
+    elif field=='annotations':actual['annotations'][0]['text']='lost'
+    else:actual['sheet_display']['Grid ON']=1
+    assert EditorService.saved_signature([expected])!=EditorService.saved_signature([actual])
+
+
 def test_saved_label_positions_compare_native_transforms_not_text_cache(tmp_path):
     s=scene()
     s['components']=[{'ref':'VIN','transform':[1,0,0,1,9,234], 'pins':[],

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Discover and edit typed scalar settings across 19 native analysis profiles, including initial conditions, transient/AC settings, digital thresholds and 44 solver options.
+- Enable custom solver settings in the native default/custom selector so saved values actually reach the solver.
+- Run saved OP/AC/TRAN settings through Multisim's native command compiler; support persistent synchronous, background and workflow analysis configuration.
+- Add general source saves with conflict checks, backups and native reopen verification for all document edits.
+- Persist selected-sheet grid, border and bounds; commit native application wiring preferences separately with reload verification.
+- Verify embedded model text, annotations, native page names and display preferences on save; refresh shared model labels and persist sheet names correctly.
+- Audit persistence ownership for all 76 MCP tools. Runtime state, external results/records and title-block export rendering flags are explicitly distinguished from native document content.
+
 ## 0.4.1
 
 - Persist interactive time steps and real-time pacing in native document simulation settings, without mouse automation or circuit binary rewriting.

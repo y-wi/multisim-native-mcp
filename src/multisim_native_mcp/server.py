@@ -15,6 +15,7 @@ from . import __version__
 from .contracts import MeasurementRequest,AcceptanceCriterion,normalize_measurements,normalize_criteria
 from .workflow_contracts import ComponentRequest,WorkflowPlan,WorkflowStage
 from .workflows import WorkflowManager,NeedsInput
+from .settings import SimulationSettingChange,Scalar
 
 host = EditorService()
 experiments = ExperimentManager(host)
@@ -106,6 +107,14 @@ def native_runtime_status() -> dict:
 
 @server.tool()
 @checked
+def native_persistence_capabilities() -> dict:
+    """Audit every MCP tool's persistence ownership: native circuit settings/edits, application preferences, external results/records, runtime state or inspection. Reports exact save mechanisms and saved-document verification coverage without opening Multisim. Runtime execution state and external files are not claimed to be embedded in .ms14."""
+    from .persistence import persistence_capabilities
+    return persistence_capabilities()
+
+
+@server.tool()
+@checked
 def native_diagnostics() -> dict:
     """Read captured native netlist errors, including background Netlist Viewer updates, without a modal dialog."""
     if not host.agent: return {'netlist_errors':[]}
@@ -162,17 +171,9 @@ def native_connect_pins(source_ref: str, source_pin: str, target_ref: str, targe
 @checked
 def native_configure_wiring(autowire_on_connection: bool | None = None, autowire_on_move: bool | None = None,
                             connect_touching: bool | None = None, move_connection_limit: int | None = None,
-                            reset: bool = False) -> dict:
-    """Read or configure native Multisim autowiring for connections, moves and touching pins. A move reroutes only below move_connection_limit; other moves preserve attachments and route shape. Changes last for this session and restore on close. Use reset alone to restore original settings. Stop simulation before changes."""
-    options={key:value for key,value in locals().items() if value is not None and key!='reset'}
-    if reset:
-        if options: raise ValueError('Use reset alone to restore wiring options')
-        options={'reset':True}
-    if move_connection_limit is not None and (isinstance(move_connection_limit,bool) or not 1<=move_connection_limit<=10000):
-        raise ValueError('move_connection_limit must be an integer from 1 to 10000')
-    with host.lock:
-        if options and host.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before changing wiring options')
-        return host.call('wiringOptions',options)
+                            reset: bool = False, persist: bool = False) -> dict:
+    """Read/configure native autowiring. Default changes are temporary and restored on close; reset alone restores temporary changes. persist=true commits and reload-verifies Multisim application preferences. These are application-wide native registry settings, not .ms14 content; persisted_in_circuit=false reports this explicitly. Stop simulation before changes."""
+    return host.configure_wiring(autowire_on_connection,autowire_on_move,connect_touching,move_connection_limit,reset,persist)
 
 
 @server.tool()
@@ -197,6 +198,31 @@ def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
 def native_save_copy(output_path: str, overwrite: bool = False, allow_off_page: bool = False, verify: bool = True) -> dict:
     """Save a separate absolute .ms14 file while stopped. Check all sheets for off-page content and verify the saved copy through native reopen without replacing the active document or invalidating its handles. Resize or move off-page content before saving; allow_off_page=true preserves an intentional off-page layout. verify=false skips readback. Existing output requires overwrite=true and is backed up."""
     return host.save_copy(output_path,overwrite,allow_off_page,verify)
+
+
+@server.tool()
+@checked
+def native_save_source(allow_off_page: bool = False) -> dict:
+    """Explicitly save ALL current native document edits back to the opened source .ms14: components, wires, embedded models, annotations, sheet display and simulation settings. Always back up, check external source changes and verify an independently reopened native copy before atomic replacement. Stop simulation first. A new untitled circuit needs native_save_copy; packaged templates are protected. allow_off_page=true permits an intentionally off-page drawing."""
+    return host.save_source(allow_off_page)
+
+
+@server.tool()
+@checked
+def native_simulation_settings(scope: Literal['interactive','analysis'] = 'interactive', analysis_type: str = 'TRAN',
+    changes: list[SimulationSettingChange] | None = None, solver_options: dict[str,Scalar] | None = None,
+    save_to_source: bool = False, expected_revision: str | None = None) -> dict:
+    """Read/edit native document simulation settings, including all available analysis families and solver options. Read first to discover actual fields, types, paths, option enabled states and revision. changes=[{path:[\"ANALYSIS\",\"TSTOP\"],value:2}] edits an existing scalar; integers in paths select duplicate native fields by index. TSTEP/TMAX accept null for automatic calculation; IC accepts auto_ic/uic/zero_ic. solver_options={reltol:0.0001,abstol:1e-12,method:\"gear\",itl4:150,temp:35} enables native custom options; null/false disables an option. The API sets native custom/default selector flags so values actually apply. Preserves other fields; invalid paths/types/ranges or stale revisions roll back. Changes are document-owned and survive native_save_copy/native_save_source; add save_to_source=true for verified backed-up original-file replacement. saved_to_file=false means this call did not save to disk. Ordinary Multisim uses settings after reopening. Numeric tools use_saved_settings=true execute saved OP/AC/TRAN with native-compiled solver options."""
+    return host.simulation_settings(scope,analysis_type,changes,solver_options,save_to_source,expected_revision)
+
+
+@server.tool()
+@checked
+def native_configure_sheet_display(show_grid: bool | None = None, show_border: bool | None = None,
+    show_bounds: bool | None = None, save_to_source: bool = False) -> dict:
+    """Read/edit persistent native display preferences for the SELECTED sheet: grid, border and bounds. Native readback is verified; save via native_save_copy/native_save_source, or add save_to_source=true for backed-up verified source replacement. Change while stopped. Export rendering flags remain temporary. Title-block presence is derived by Multisim from title-block objects on load; its temporary rendering flag is not represented as a persistent display boolean."""
+    return host.configure_sheet_display(save_to_source,show_grid=show_grid,show_border=show_border,
+                                        show_bounds=show_bounds)
 
 
 @server.tool()
@@ -428,23 +454,27 @@ def native_check_netlist() -> dict:
 
 @server.tool()
 @checked
-def native_run_analysis(analysis: str = 'op', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False) -> dict:
-    """Run real Multisim DC operating-point (op) or transient (tran) analysis. Return verified numeric waveforms plus ASCII RAW, CSV and native SPICE source paths. At most 100000 requested transient steps."""
-    return host.run_analysis(analysis,step,stop,use_initial_conditions)
+def native_run_analysis(analysis: str = 'op', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False,
+    persist: bool = False, save_to_source: bool = False, use_saved_settings: bool = False) -> dict:
+    """Run real OP/transient analysis and export RAW/CSV. Default arguments apply to this run. persist=true also writes those arguments into native analysis configuration; add save_to_source=true to back up and verify-save the original. Alternatively use_saved_settings=true executes the stored analysis and solver options using native-generated commands. Saved transient execution is bounded to 100 s and 100000 requested steps; saved AC is also supported. Persist and use_saved_settings are exclusive. Results are external artifacts, separate from saved circuit configuration."""
+    return host.run_analysis(analysis,step,stop,use_initial_conditions,persist=persist,save_to_source=save_to_source,use_saved_settings=use_saved_settings)
 
 
 @server.tool()
 @checked
-def native_run_ac_sweep(sweep: str = 'dec', points: int = 20, start_hz: float = 1., stop_hz: float = 100000.) -> dict:
-    """Run native AC analysis: lin uses total points, dec/oct use points per decade/octave. Return complex RAW and real/imaginary CSV vectors."""
-    return host.run_analysis('ac',ac_sweep=sweep,ac_points=points,ac_start=start_hz,ac_stop=stop_hz)
+def native_run_ac_sweep(sweep: str = 'dec', points: int = 20, start_hz: float = 1., stop_hz: float = 100000.,
+    persist: bool = False, save_to_source: bool = False, use_saved_settings: bool = False) -> dict:
+    """Run native AC analysis: lin uses total points, dec/oct use points per decade/octave. persist=true retains sweep settings in the document; save_to_source=true additionally back up/verify-saves the original. use_saved_settings=true instead executes saved native AC settings and solver options. Return complex RAW and real/imaginary CSV artifacts."""
+    return host.run_analysis('ac',ac_sweep=sweep,ac_points=points,ac_start=start_hz,ac_stop=stop_hz,
+                            persist=persist,save_to_source=save_to_source,use_saved_settings=use_saved_settings)
 
 
 @server.tool()
 @checked
-def native_start_analysis(analysis: str = 'tran', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False) -> dict:
-    """Start a native analysis in the background so pause/resume/stop and status tools remain available."""
-    return host.start_analysis(analysis,step,stop,use_initial_conditions)
+def native_start_analysis(analysis: str = 'tran', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False,
+    persist: bool = False, save_to_source: bool = False, use_saved_settings: bool = False) -> dict:
+    """Start background native analysis with pause/resume/stop/status. persist=true retains explicit run arguments in native document settings; save_to_source=true additionally backs up and verify-saves the source before running. use_saved_settings=true executes stored analysis and native-compiled solver options instead. Results remain external artifacts."""
+    return host.start_analysis(analysis,step,stop,use_initial_conditions,persist=persist,save_to_source=save_to_source,use_saved_settings=use_saved_settings)
 
 
 @server.tool()
