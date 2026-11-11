@@ -42,7 +42,7 @@ def test_rotated_and_copied_symbols_stay_aligned_with_wire_graphics(tmp_path):
 @pytest.fixture
 def different_reference(tmp_path,monkeypatch):
     resources=tmp_path/'reference';resources.mkdir()
-    for name in ['host_agent.js','editor_agent.js','startup_agent.js','native-profile.json']:
+    for name in ['host_agent.js','editor_agent.js','simulation_settings.js','startup_agent.js','native-profile.json']:
         shutil.copy2(RESOURCE_DIR/name,resources/name)
     (resources/'assets').mkdir()
     shutil.copy2(RESOURCE_DIR/'assets/blank14.3.ms14',resources/'assets/blank14.3.ms14')

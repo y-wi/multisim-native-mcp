@@ -26,7 +26,7 @@
 | `decode` | `raw_path`, `digits`, `expected`, `options` for scanned-display decoding |
 | `save` | absolute `output_path`, `overwrite`, `allow_off_page`, `verify` |
 | `export` | absolute `output_path`, `overwrite`, `dpi`, `fit_content`, `show_frame`, `show_grid` |
-| `interactive` | time steps, `real_time`, `captures`, `overwrite`, `stop_after: true` |
+| `interactive` | time steps, `real_time`, `persist: false`, `captures`, `overwrite`, `stop_after: true` |
 | `close` | last stage; detach leaves an attached window open |
 
 `options` on an analysis uses `analysis: op/tran/ac`, `step`, `stop`, `use_initial_conditions`, `ac_sweep`, `ac_points`, `ac_start` and `ac_stop`.

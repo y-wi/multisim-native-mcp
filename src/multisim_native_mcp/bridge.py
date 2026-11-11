@@ -20,6 +20,11 @@ from .paths import RESOURCE_DIR as ROOT, DATA_DIR
 INSTALL = Path(os.environ.get('MULTISIM_NATIVE_INSTALL', str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'National Instruments' / 'Circuit Design Suite 14.3')))
 
 
+def editor_script():
+    return '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
+                     ('host_agent.js', 'editor_agent.js', 'simulation_settings.js'))
+
+
 def native_environment() -> dict[str, str]:
     """MCP clients filter inherited variables; DAO's REG_EXPAND_SZ needs CommonProgramFiles."""
     result = os.environ.copy()
@@ -187,7 +192,7 @@ class NativeHost:
                             time.sleep(0.25)
                             continue
                         if self.agent is None:
-                            candidate = self.session.create_script((ROOT / 'host_agent.js').read_text(encoding='utf-8') + '\n' + (ROOT / 'editor_agent.js').read_text(encoding='utf-8'),runtime='v8')
+                            candidate = self.session.create_script(editor_script(),runtime='v8')
                             candidate.on('message', self._message)
                             candidate.load()
                             candidate.exports_sync.identity()
@@ -257,7 +262,7 @@ class NativeHost:
         with self.lock:
             self.agent.exports_sync.close()
             self.agent.unload()
-            code = (ROOT / 'host_agent.js').read_text(encoding='utf-8') + '\n' + (ROOT / 'editor_agent.js').read_text(encoding='utf-8')
+            code = editor_script()
             self.agent = self.session.create_script(code,runtime='v8')
             self.agent.load()
             return self.agent.exports_sync.identity()

@@ -32,6 +32,8 @@ Each edit stage is one rollback unit. Up to eight edits run per native UI-thread
 
 Interactive stages can configure, start, wait for requested display digits, capture several real frames and stop. Each frame retains its actual native display state. Runtime budgets request cancellation at supported native boundaries. Electrical values and acceptance limits change only when supplied in an updated plan.
 
+Set `persist: true` on an `interactive` stage to write its steps and pacing into native document settings. Follow with a `save` stage to retain them in the output `.ms14`. Without `persist`, overrides last only for the current MCP session. Explicit original-file replacement is available through `native_configure_interactive(persist: true, save_to_source: true)` with backup and reopen verification.
+
 交互阶段可以配置、启动仿真，在本地等待指定数字，连续截取多个真实画面后停止；每张截图均附实际原生显示状态。运行时间预算会在支持的原生边界请求取消。电气参数和验收范围由提交的计划明确指定。
 
 `stats.external_calls` counts workflow API calls; `native_calls` and `native_seconds` measure host RPC work. Model reasoning turns require client-side measurements. See the self-contained [workflow skill reference](../skills/multisim-native/references/workflows.md) for schemas and examples.

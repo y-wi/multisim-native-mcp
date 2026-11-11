@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '0.4.0',
+    [string]$Version = '0.4.1',
     [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'MultisimNativeMCP'),
     [string]$Source,
     [ValidateSet('codex','dsh','none')][string]$Client = 'codex',

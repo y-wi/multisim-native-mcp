@@ -161,7 +161,9 @@ VCC、VEE 等电源符号可以重名。移动、旋转和连线时使用所选�
 
 随后调用 `native_control_interactive`，参数为 `{"action": "start"}`。1 ms 步长可减少求解计算，原生实时节奏让灯光按实际时间切换。较快的信号应使用更小步长，调整后验证频率和输出顺序。
 
-配置对当前会话后续由 MCP 启动的运行生效，保存的 `.ms14` 文件和数值分析设置保持不变。通过 `interactive_options.last_start` 确认实际生效的原生参数。无参数调用 `native_configure_interactive` 读取配置；停止仿真后传入 `{"reset": true}` 恢复软件默认值。
+默认配置对当前会话后续由 MCP 启动的运行生效。通过 `interactive_options.last_start` 确认临时参数；无参数调用读取临时配置，停止仿真后传入 `{"reset": true}` 清除临时配置。
+
+要永久保存到原 `.ms14`，向 `native_configure_interactive` 传入 `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`。服务通过原生文档属性写入配置，先备份源文件，再独立重开保存结果核对全部仿真设置；以后普通打开电路并启动仿真即可生效。源文件被外部修改时会阻止覆盖。只传 `persist: true` 时修改仍在当前文档中，需调用 `native_save_copy` 才会写入文件；返回值 `saved_to_file` 会区分这两种状态。用 `{"persist": true}` 读取文档配置，或用 `{"persist": true, "reset": true}` 恢复自动步长和实时节奏后保存。数值分析定义及其他求解器选项均保留。
 
 可直接向 agent 提出：
 

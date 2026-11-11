@@ -415,7 +415,9 @@ class WorkflowManager:
         if kind=='save':return self.host.save_copy(**a)
         if kind=='export':return self.host.export_image(**a)
         if kind=='interactive':
-            self.host.configure_interactive(a.get('time_step'),a.get('max_time_step'),a.get('real_time'))
+            if a.get('persist'):
+                configuration=self.host.configure_interactive(a.get('time_step'),a.get('max_time_step'),a.get('real_time'),persist=True)
+            else:configuration=self.host.configure_interactive(a.get('time_step'),a.get('max_time_step'),a.get('real_time'))
             frames=[]
             try:
                 started=self.host.control_interactive('start',15)
@@ -448,7 +450,7 @@ class WorkflowManager:
                     frames.append(frame)
                     record.setdefault('partial_outputs',{})[stage['id']]=[f['path'] for f in frames]
                     self._save_record(record)
-                return {'started':started,'frames':frames,'passed':True}
+                return {'started':started,'configuration':configuration,'frames':frames,'passed':True}
             finally:
                 if a.get('stop_after',True) or self.cancel_event.is_set():self.host.control_interactive('stop',15)
         if kind=='close':return self.host.close()
@@ -478,7 +480,9 @@ class WorkflowManager:
             value=record['bindings'][stage['id']]
             if stage['kind']=='analysis':outputs[stage['id']]={k:value[k] for k in ('measurements','passed','criteria','raw_path','csv_path','netlist_path') if k in value}
             elif stage['kind'] in ('save','export'):outputs[stage['id']]={k:value[k] for k in ('path','verification','page_check','width','height') if k in value}
-            elif stage['kind']=='interactive':outputs[stage['id']]={'passed':value['passed'],'frames':[{k:f[k] for k in ('path','display_states','capture_mode') if k in f} for f in value['frames']]}
+            elif stage['kind']=='interactive':outputs[stage['id']]={'passed':value['passed'],
+                **({'configuration':value['configuration']} if 'configuration' in value else {}),
+                'frames':[{k:f[k] for k in ('path','display_states','capture_mode') if k in f} for f in value['frames']]}
             elif stage['kind'] in ('layout','verify','decode','prepare'):outputs[stage['id']]=value
         result['results']=outputs
         if self.record and self.record['id']==identifier and not live:

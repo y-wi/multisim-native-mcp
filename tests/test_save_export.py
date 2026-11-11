@@ -42,7 +42,8 @@ def saving_host(tmp_path,states):
         if op=='setProjectPath':return True
         if op=='simulationInfo':return {'state':0}
         if op=='synchronizeGraphics':return {}
-        if op in ('projectCircuitState','verifySavedCopy'):return {'states':copy.deepcopy(states)}
+        if op=='simulationSettingsText':return 'native simulation settings'
+        if op in ('projectCircuitState','verifySavedCopy'):return {'states':copy.deepcopy(states),'simulation_settings':'native simulation settings'}
         if op=='save':
             Path(args['path']).write_bytes(b'Native circuit file'*4)
             return {'nativeResult':1,'errorCode':0,'path':args['path']}
@@ -71,6 +72,17 @@ def test_failed_readback_restores_existing_output(tmp_path):
     host.call=call;output=tmp_path/'output.ms14';output.write_bytes(b'previous')
     with pytest.raises(RuntimeError,match='differs after native reopen'):host.save_copy(str(output),True)
     assert output.read_bytes()==b'previous' and not list(tmp_path.glob('verify-*.ms14'))
+
+
+def test_simulation_settings_readback_failure_restores_output(tmp_path):
+    host,calls=saving_host(tmp_path,[scene()]);original=host.call
+    def call(op,args=None):
+        result=original(op,args)
+        if op=='verifySavedCopy':result['simulation_settings']='lost settings'
+        return result
+    host.call=call;output=tmp_path/'output.ms14';output.write_bytes(b'previous')
+    with pytest.raises(RuntimeError,match='simulation settings differ'):host.save_copy(str(output),True)
+    assert output.read_bytes()==b'previous'
 
 
 def test_saved_label_positions_compare_native_transforms_not_text_cache(tmp_path):

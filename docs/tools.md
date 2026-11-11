@@ -53,7 +53,7 @@
 | `native_analysis_status` | — |
 | `native_control_analysis` | action |
 | `native_control_interactive` | action, wait_timeout |
-| `native_configure_interactive` | time_step, max_time_step, real_time, reset |
+| `native_configure_interactive` | time_step, max_time_step, real_time, reset, persist, save_to_source |
 | `native_interactive_status` | include_displays |
 | `native_export_interactive_image` | output_path, overwrite, dpi, scale, region, fit_content, padding, show_frame, show_grid, active_component, wait_timeout |
 | `native_read_waveform` | raw_path, offset, limit, plot_index |
@@ -98,9 +98,9 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 
 ### Interactive simulation / 交互仿真
 
-`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` sets a 1 ms solver/output step ceiling with native real-time pacing for low-frequency LED circuits. Select a step that resolves the fastest relevant signal and verify the result. Call without arguments to read settings, or with `reset: true` to restore application defaults. Change options while stopped; they apply to subsequent `native_control_interactive(start)` runs in this session. They do not modify the `.ms14` file or numeric analysis. `interactive_options.last_start` reports the actual native startup command and applied step values; `command_pending` remains true and `native_result` null until the native command returns. Read simulation state and errors to confirm the running result.
+`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` sets temporary session overrides by default. Select steps that resolve the fastest relevant signal and verify the result. `interactive_options.last_start` reports effective temporary startup parameters. Add `persist: true` to write native document settings, then `native_save_copy` to retain them. Add both `persist: true` and `save_to_source: true` for an explicitly authorized original-file update: the server backs up the original, checks external changes, saves natively and independently reopens to verify all simulation settings. Ordinary GUI starts after reopening use the saved values. `saved_to_file: false` means a save is still needed. Read with `persist: true` and no options. Change while stopped; `reset: true` restores automatic steps and real-time pacing in the selected scope. Persistent changes clear session overrides and preserve numeric-analysis definitions and other solver options.
 
-低频流水灯可先调用 `native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)`，将输出步长和最大求解步长设为 1 ms，并使用原生实时节奏。步长需能分辨电路中最快的有效信号，并通过波形验证。无参数调用读取配置，`reset: true` 恢复软件默认值。停止仿真后修改；配置对本会话后续由 `native_control_interactive(start)` 启动的运行生效，不写入 `.ms14`，不影响数值分析。`interactive_options.last_start` 返回实际原生启动命令、步长和执行结果。
+上述参数默认仅本会话有效。添加 `persist: true` 写入原生文档，再另存；同时添加 `save_to_source: true` 则先备份，保存回原文件并独立重开核对。重开后普通启动仿真也使用保存的参数。`saved_to_file: false` 表示还需保存；只传 `persist: true` 读取文档设置。`persist: true, reset: true` 恢复文档的自动步长和实时节奏，再保存即可保留。停止仿真后修改，设置不会覆盖数值分析定义和其他求解器选项。
 
 `native_control_interactive` accepts `start`, `pause`, `resume` and `stop`. It returns the observed `state_name`, `simulation_time_s`, errors and `transition_confirmed`. Repeating an already reached state is idempotent. A queued command with `transition_confirmed: false` is still pending; poll `native_interactive_status`. Numeric-session cleanup occurs before starting interactive simulation and preserves object handles. Stop interactive simulation before editing, regenerating the netlist or running numeric analysis.
 

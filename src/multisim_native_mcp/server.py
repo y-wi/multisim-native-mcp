@@ -464,9 +464,10 @@ def native_interactive_status(include_displays: bool = False) -> dict:
 @server.tool()
 @checked
 def native_configure_interactive(time_step: float | None = None, max_time_step: float | None = None,
-    real_time: bool | None = None, reset: bool = False) -> dict:
-    """Read or configure the next MCP-started native GUI interactive runs. Time steps are seconds (1e-12 to 1); real_time enables native real-time pacing. For low-frequency LED circuits, time_step=0.001, max_time_step=0.001, real_time=true reduces unnecessary solver steps. Choose steps suitable for the circuit's fastest signals and verify its waveforms. Change options while stopped. Settings belong to this attached session, do not change the saved circuit or numeric analysis, and reset=true restores application defaults. Status reports the actual applied native startup parameters."""
-    return host.configure_interactive(time_step,max_time_step,real_time,reset)
+    real_time: bool | None = None, reset: bool = False, persist: bool = False,
+    save_to_source: bool = False) -> dict:
+    """Read/configure native interactive simulation. Steps are seconds (1e-12 to 1); real_time enables native pacing. Default persist=false changes only subsequent MCP starts in this session. With persist=true, read/write native document settings that survive native_save_copy and ordinary GUI starts after reopening; saved_to_file=false means a save is still needed. Add save_to_source=true to explicitly replace the original .ms14 with a backup and independent native reopen verification; external source changes block replacement. This preserves numeric-analysis and other solver options, and clears temporary overrides. Change options while stopped. reset=true restores automatic steps and real-time pacing for the chosen scope. For low-frequency LEDs, 0.001 s steps may improve speed; verify the fastest relevant signals."""
+    return host.configure_interactive(time_step,max_time_step,real_time,reset,persist=persist,save_to_source=save_to_source)
 
 
 @server.tool()

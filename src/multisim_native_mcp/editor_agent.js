@@ -1111,7 +1111,7 @@ function verifySavedCopy(args) {
     const found=projects().projects.find(p=>p.path.toLowerCase()===args.path.toLowerCase());
     if(!found||ptr(found.id).equals(original))throw new Error('Saved verification copy could not be opened: '+result);
     loaded=ptr(found.id);selectedProjectIndex=found.index;selectedSheetId=null;cachedDiagram=null;
-    return projectCircuitState(args);
+    return {...projectCircuitState(args),...(args.include_simulation_settings?{simulation_settings:documentSimulationText()}: {})};
   } finally {
     native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(value);
     if(loaded){

@@ -161,7 +161,9 @@ For a low-frequency LED chaser, stop simulation and call `native_configure_inter
 
 Then call `native_control_interactive` with `{"action": "start"}`. The 1 ms steps reduce solver work; native real-time pacing keeps light changes observable. Choose smaller steps for faster signals, and verify the frequency and output sequence after changing them.
 
-Settings apply to subsequent MCP-started runs in the current session. The saved `.ms14` file and numeric-analysis settings stay unchanged. Read `interactive_options.last_start` to confirm the effective native parameters. Call `native_configure_interactive` without arguments to read settings, or with `{"reset": true}` while stopped to restore application defaults.
+By default these settings apply to subsequent MCP-started runs in this session. Read `interactive_options.last_start` to confirm the effective temporary parameters. Call without arguments to read temporary settings, or with `{"reset": true}` while stopped to clear them.
+
+To keep these settings in the original `.ms14`, call `native_configure_interactive` with `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`. The server writes native document properties, backs up the source and independently reopens the saved circuit to verify all simulation settings. Ordinary Multisim starts after reopening use those steps without an MCP override. External source edits block replacement. With only `persist: true`, settings remain in the editable document until `native_save_copy` saves them; `saved_to_file` reports this distinction. Read document settings with `{"persist": true}`; restore automatic steps and real-time pacing with `{"persist": true, "reset": true}` (then save). Numeric-analysis definitions and other solver options are preserved.
 
 Example request:
 

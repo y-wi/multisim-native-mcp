@@ -18,7 +18,7 @@ import uuid
 
 import frida
 from PIL import Image
-from .bridge import NativeHost, ROOT, INSTALL, sha256
+from .bridge import NativeHost, ROOT, INSTALL, sha256, editor_script
 from .paths import DATA_DIR
 
 MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
@@ -120,6 +120,7 @@ class EditorService(NativeHost):
                 raise RuntimeError('Stop numeric analysis before saving the circuit')
             if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before saving the circuit')
             self.call('synchronizeGraphics')
+            simulation_settings=self.call('simulationSettingsText') if verify else None
             sheets=self.call('projectCircuitState',{'include_parameters':verify})['states']
             outside=[]
             for state in sheets:
@@ -134,19 +135,48 @@ class EditorService(NativeHost):
                 verification=self.folder()/('verify-'+uuid.uuid4().hex+'.ms14')
                 try:
                     shutil.copy2(result['path'],verification)
-                    reopened=self.call('verifySavedCopy',{'path':str(verification),'include_parameters':True})
+                    reopened=self.call('verifySavedCopy',{'path':str(verification),'include_parameters':True,'include_simulation_settings':True})
                     expected=self.saved_signature(sheets);actual=self.saved_signature(reopened['states'])
+                    if simulation_settings!=reopened['simulation_settings']:
+                        raise RuntimeError('Saved simulation settings differ after native reopen')
                     if expected!=actual:
                         diagnostic=verification.with_suffix('.json')
                         diagnostic.write_text(json.dumps({'expected':expected,'actual':actual},ensure_ascii=False,indent=2),encoding='utf-8')
                         raise RuntimeError('Saved circuit differs after native reopen; diagnostics: '+str(diagnostic))
-                    result['verification']={'passed':True,'reopened':True,'sheets':len(sheets),'components':sum(len(s['components']) for s in sheets),'wires':sum(len(s['wires']) for s in sheets)}
+                    result['verification']={'passed':True,'reopened':True,'simulation_settings_preserved':True,'sheets':len(sheets),'components':sum(len(s['components']) for s in sheets),'wires':sum(len(s['wires']) for s in sheets)}
                 except Exception:
                     if result['backup']:shutil.copy2(result['backup'],result['path'])
                     raise
                 finally:verification.unlink(missing_ok=True)
             else:result['verification']={'reopened':False}
             return result
+
+    def _save_source(self):
+        """Explicit source replacement, only after verified native save and conflict checks."""
+        if not self.source or not self.source.is_file():raise ValueError('No existing source file to save')
+        source=self.source
+        if source==(ROOT/'assets'/'blank14.3.ms14').resolve():
+            raise ValueError('Save a new circuit with native_save_copy first; the packaged template is protected')
+        if sha256(source)!=self.source_hash:raise RuntimeError('Source changed outside this session; reopen it before saving')
+        staged=source.with_name('save-source-'+uuid.uuid4().hex+'.ms14')
+        original_path=self.call('inspect')['projectPath'];backup=None;replaced=False
+        try:
+            result=self.save_copy(str(staged),verify=True)
+            if sha256(source)!=self.source_hash:raise RuntimeError('Source changed during verification; source was not overwritten')
+            backup=source.with_name(source.name+'.'+uuid.uuid4().hex[:8]+'.bak')
+            shutil.copy2(source,backup)
+            if sha256(backup)!=self.source_hash or sha256(source)!=self.source_hash:
+                raise RuntimeError('Source changed during backup; source was not overwritten')
+            staged.replace(source);replaced=True
+            if not self.call('setProjectPath',{'path':str(source)}):raise RuntimeError('Could not update native document path')
+            self.source_hash=sha256(source)
+            return {**result,'path':str(source),'backup':str(backup),'sha256':self.source_hash,
+                    'source_unchanged':False,'saved_to_source':True}
+        except Exception:
+            if replaced:shutil.copy2(backup,source)
+            self.call('setProjectPath',{'path':original_path})
+            raise
+        finally:staged.unlink(missing_ok=True)
 
     def checkpoint(self):
         path=self.folder()/('checkpoint-'+uuid.uuid4().hex+'.ms14')
@@ -495,7 +525,7 @@ class EditorService(NativeHost):
             raise RuntimeError('A numeric analysis is active; use native_analysis_status and native_control_analysis')
         return self.call('interactiveStatus',{'include_displays':include_displays})
 
-    def configure_interactive(self,time_step=None,max_time_step=None,real_time=None,reset=False):
+    def configure_interactive(self,time_step=None,max_time_step=None,real_time=None,reset=False,*,persist=False,save_to_source=False):
         configuration={}
         for name,value in [('time_step',time_step),('max_time_step',max_time_step)]:
             if value is None:continue
@@ -506,12 +536,33 @@ class EditorService(NativeHost):
             if not isinstance(real_time,bool):raise ValueError('real_time must be boolean')
             configuration['real_time']=real_time
         if not isinstance(reset,bool):raise ValueError('reset must be boolean')
+        if not isinstance(persist,bool) or not isinstance(save_to_source,bool):raise ValueError('persist and save_to_source must be boolean')
+        if save_to_source and not persist:raise ValueError('save_to_source requires persist=true')
         if reset and configuration:raise ValueError('reset cannot be combined with simulation options')
         with self.lock:
-            if configuration or reset:
+            if configuration or reset or save_to_source:
                 state=self.interactive_status()
                 if state['state_name'] in ('running','paused'):raise RuntimeError('Stop interactive simulation before changing its options')
-            return self.call('interactiveOptions',{'configuration':configuration,'reset':reset})
+            if not persist:return self.call('interactiveOptions',{'configuration':configuration,'reset':reset})
+            if not configuration and not reset and not save_to_source:
+                return {**self.call('documentInteractiveOptions'),'saved_to_file':False}
+            checkpoint=self.checkpoint()
+            temporary=self.call('interactiveOptions').get('configuration',{})
+            try:
+                result=self.call('documentInteractiveOptions',{'configuration':configuration,'reset':reset})
+                expected={'time_step':None,'max_time_step':None,'real_time':True} if reset else configuration
+                if any(result['configuration'].get(key)!=value for key,value in expected.items()):
+                    raise RuntimeError('Native document interactive settings failed readback')
+                if result['changed']:self.call('markModified')
+                # A previous temporary override must not mask the document's settings.
+                self.call('interactiveOptions',{'reset':True})
+                if save_to_source:result['save']=self._save_source()
+            except Exception:
+                self.restore(checkpoint)
+                if temporary:self.call('interactiveOptions',{'configuration':temporary})
+                raise
+            self.undo_stack.append(checkpoint);self.redo_stack.clear()
+            return {**result,'saved_to_file':save_to_source,'handles_invalidated':False}
 
     def control_interactive(self,action,wait_timeout=5.0):
         if action not in ('start','pause','resume','stop'):raise ValueError('Choose start, pause, resume or stop')
@@ -570,7 +621,7 @@ class EditorService(NativeHost):
                 for name in ('multisim.exe','DrwEngine.dll','SCH_CAP.dll','Od101dll.dll'):
                     if name.lower() not in modules:
                         raise RuntimeError('Attached process is not ready: '+name)
-                code=(ROOT/'host_agent.js').read_text(encoding='utf-8')+'\n'+(ROOT/'editor_agent.js').read_text(encoding='utf-8')
+                code=editor_script()
                 self.agent=self.session.create_script(code,runtime='v8');self.agent.on('message',self._message);self.agent.load()
                 self.call('selectProject',{'index':project_index})
                 info=self.call('inspect');source=Path(info['projectPath'])

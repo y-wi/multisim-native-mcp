@@ -213,6 +213,7 @@ class InteractiveStage(Stage):
     time_step: float | None = Field(default=None, ge=1e-12, le=1)
     max_time_step: float | None = Field(default=None, ge=1e-12, le=1)
     real_time: bool | None = None
+    persist: bool = False
     captures: list[Capture] = Field(default_factory=list, max_length=16)
     overwrite: bool = False
     stop_after: bool = True

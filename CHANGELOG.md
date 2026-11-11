@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Persist interactive time steps and real-time pacing in native document simulation settings, without mouse automation or circuit binary rewriting.
+- Support explicit source-file saves with backups, conflict detection and independent native reopen verification.
+- Verify that all document simulation settings survive native saves, preserving numeric-analysis definitions and other solver options.
+- Retain temporary session configuration by default; allow workflow interactive stages to persist settings for a later save stage.
+
 ## 0.4.0
 
 - Execute typed circuit workflows with dependent edits, native analysis, acceptance criteria, saved-copy verification and exports.

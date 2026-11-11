@@ -59,7 +59,7 @@ def doctor(install_path: str | None = None, connect: bool = False) -> dict:
         "version": __version__, "platform": sys.platform,
         "python": sys.version.split()[0], "architecture": struct.calcsize("P") * 8,
         "resources": all((RESOURCE_DIR / name).is_file() for name in (
-            "host_agent.js", "editor_agent.js", "startup_agent.js", "native-profile.json", "assets/blank14.3.ms14")),
+            "host_agent.js", "editor_agent.js", "simulation_settings.js", "startup_agent.js", "native-profile.json", "assets/blank14.3.ms14")),
         "data_directory": str(DATA_DIR),
     }
     if sys.platform == "win32" and struct.calcsize("P") == 4:

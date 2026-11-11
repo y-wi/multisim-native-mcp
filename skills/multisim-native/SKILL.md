@@ -49,6 +49,8 @@ A workflow `interactive` stage configures, starts, waits for requested display s
 
 Choose time steps for the fastest relevant signal. A 1 ms step with real-time pacing suits low-frequency LED behavior, not every multiplexed circuit. Stop interactive simulation before editing or numeric analysis. For individual controls and waveform details, read [references/analysis.md](references/analysis.md).
 
+For permanent simulation settings, use `native_configure_interactive(persist: true, ...)` and then save, or add `save_to_source: true` when the user explicitly requests updating the original file. Source saves include a backup, external-edit detection and native reopen verification. `saved_to_file: false` means the document configuration still needs saving. Temporary session settings remain the default. A workflow `interactive` stage accepts `persist: true`; follow it with a `save` stage for a persistent output file.
+
 ## Deliver
 
 Report the saved circuit and requested exports, measured acceptance and any remaining failed criterion. Distinguish numeric verification from visual inspection. If the user will validate simulation themselves, deliver the edit and requested geometry checks without adding experiments.

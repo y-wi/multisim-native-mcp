@@ -143,6 +143,17 @@ def test_output_preflight_happens_before_any_stage(tmp_path):
     assert result['status']=='needs_input' and not called and existing.read_bytes()==b'keep'
 
 
+def test_interactive_workflow_reports_document_configuration_for_subsequent_save(tmp_path):
+    h=Host(tmp_path);manager=WorkflowManager(h,tmp_path/'records');calls=[]
+    def configure(*args,**kwargs):
+        calls.append(kwargs);return {'persisted_in_circuit':True,'saved_to_file':False}
+    h.configure_interactive=configure
+    h.control_interactive=lambda action,timeout:{'transition_confirmed':True,'action':action}
+    result=manager.start({'steps':[{'id':'live','kind':'interactive','time_step':.001,'persist':True}]})
+    assert result['status']=='complete' and calls==[{'persist':True}]
+    assert result['results']['live']['configuration']['persisted_in_circuit']
+
+
 def test_packed_native_slice_resolves_bindings_and_stops_before_bad_native_calls():
     source=(RESOURCE_DIR/'editor_agent.js').read_text(encoding='utf-8')
     section=source[source.index('function sequenceValue('):source.index('const editorHandlers=')]
