@@ -1,5 +1,7 @@
 # Simulation and verification
 
+For analysis plus acceptance, put measurements and criteria on a workflow `analysis` stage. For existing samples use `verify`. The tools below support individual analysis and diagnosis; see [workflows.md](workflows.md) for combined execution.
+
 ## Analysis and raw data
 
 - `native_run_analysis(analysis: "op")` runs a DC operating point. For transient analysis use `analysis: "tran"`, `step` and `stop` in seconds. The requested grid is limited to 100,000 steps and `stop` to 100 seconds.
@@ -7,7 +9,7 @@
 - `native_run_ac_sweep` takes `sweep: "lin" | "dec" | "oct"`, `points`, `start_hz` and `stop_hz`. `lin` uses a total point count; the others use points per decade or octave. Configure the source's AC magnitude first.
 - Results include `vectors`, `raw_path`, `csv_path`, `netlist_path` and `diagnostic_path`. Inspect actual source values and waveform metadata when results disagree with circuit expectations. Preserve raw numeric values; do not scale large currents to force a match.
 - `native_read_waveform` accepts `offset`, `limit` and `plot_index`. Appended digital-node plots contain transition records `[time, rising, falling]`, not ordinary voltage samples.
-- For a longer analysis, use `native_start_analysis`, then `native_analysis_status`. `native_control_analysis` requests `pause`, `resume` or `stop`; verify the resulting state instead of treating the acknowledgment as completion.
+- For longer multi-stage work, use a workflow and wait with `native_workflow_status(wait_timeout: 30)`. When controlling an individual analysis independently, use `native_start_analysis`, then `native_analysis_status`. `native_control_analysis` requests `pause`, `resume` or `stop`; verify the resulting state instead of treating the acknowledgment as completion.
 
 ## Measurement and acceptance schema
 

@@ -4,7 +4,8 @@
 
 Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
-- 67 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- Typed workflows with result bindings, native acceptance, recovery and artifact delivery.
+- 72 MCP tools for components, wires, sheets, subcircuits, models and analysis.
 - Interactive simulation with configurable time steps, real-time pacing and actual display captures.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
 - Batch edits, checkpoints, undo, redo and native save/reopen.
@@ -100,7 +101,13 @@ Start with one of these requests in your MCP client:
 
 > Open a copy of my Multisim project. List the components and pin names, replace R2 with 2.2 kΩ and save a new project.
 
-> Move R1 and keep its wires attached. Add a branch at the midpoint of the output wire, then save and reopen the circuit.
+> Move R1 and keep its wires attached. Add a branch at the midpoint of the output wire, then save with native readback verification.
+
+### Circuit workflows
+
+For complete tasks, submit one `native_run_workflow` plan with dependent edits, analysis criteria, save and export stages. The server resolves intermediate objects and waits locally. Use `native_workflow_status` with a nonzero wait for long jobs, and resume an unfinished tail with `native_control_workflow`. Single-step tools remain available for local adjustments.
+
+See [workflows](docs/workflows.md) and the complete [divider request](skills/multisim-native/assets/workflow_divider.json).
 
 ### Agent skill
 

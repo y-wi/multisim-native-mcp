@@ -1,73 +1,54 @@
 ---
 name: multisim-native
-description: "Create, edit, wire, simulate and verify editable NI Multisim circuits using the multisim_native MCP server. Use for .ms14 projects, native component placement, named-pin wiring, schematic exports, waveform measurements and parameter experiments."
+description: "Create, edit, wire, simulate and verify editable NI Multisim circuits through the multisim_native MCP server, using staged workflows for complete circuit tasks."
 ---
 
 # Multisim Native
 
-Use the `multisim_native` MCP server to edit real Multisim objects and run its simulator. Tool names below are unprefixed; a client may expose them as `mcp__multisim_native__native_*`.
+Use `multisim_native` for real Multisim objects and native simulation. Tool names below omit the client prefix.
 
-## Start here
+## Choose the execution shape
 
-- Discover the connected server's tools and schemas. Use `native_runtime_status` when runtime availability or session ownership is unclear. This does not start Multisim.
-- For an existing file, use `native_open_copy` with its absolute `.ms14` path. For a new circuit, use `native_create_circuit`. Use `native_attach(pid, project_index)` when the user requests editing a particular running window; closing that session detaches and leaves the window open.
-- Owned-host startup requires other Multisim windows to be closed. If blocked, preserve the user's work and resolve the session conflict before retrying.
-- Consume the initial `state`, then read only missing information. Current versions offer `native_get_circuit_state` for sheets, components, exact pin names, parameters, labels and wires in one call. Older versions may require the individual list tools.
-- Use native tools for circuit editing and simulation. Inspect a native exported image when visual review is needed.
+For a complete circuit task, prefer **one `native_run_workflow` plan** covering the known stages. Read [references/workflows.md](references/workflows.md) for the schema, result references and complete examples. The server prepares component metadata, reads actual pins, refreshes handles and executes dependent steps internally. Return to the agent when library choices, ambiguous objects or failed electrical criteria require a design decision.
 
-## Choose the capability
+For a single adjustment, screenshot or diagnostic, use its individual tool. Do not wrap a one-step task in unnecessary preparation and analysis. Existing clients without workflow tools can use `native_edit_batch`; see [references/editing.md](references/editing.md).
 
-| Need | Tools |
-| --- | --- |
-| Session and diagnosis | `native_runtime_status`, `native_diagnostics`, `native_create_circuit`, `native_open_copy`, `native_attach`, `native_list_projects`, `native_save_copy`, `native_close_copy` |
-| Inspect circuit | `native_get_circuit_state`, `native_list_components`, `native_list_wires`, `native_list_sheets`, `native_select_sheet` |
-| Find and place parts | `native_search_library`, `native_place_component`, `native_copy_component`, `native_replace_component`, `native_delete_object` |
-| Values and models | `native_get_parameters`, `native_set_parameter`, `native_get_model`, `native_set_model_text` |
-| Layout and labels | `native_move_component`, `native_transform_component`, `native_rename_component`, `native_move_component_label`, `native_add_text`, `native_label_wire` |
-| Electrical connections | `native_configure_wiring`, `native_connect_touching`, `native_connect_pins`, `native_connect_endpoints`, `native_reconnect_wire`, `native_split_wire`, `native_route_wire`, `native_repair_wire_geometry` |
-| Sheets and hierarchy | `native_create_sheet`, `native_create_subcircuit`, `native_create_hierarchical_port` |
-| Transactions | `native_edit_batch`, `native_undo`, `native_redo` |
-| Netlist and simulation | `native_check_netlist`, `native_run_analysis`, `native_run_ac_sweep`, `native_start_analysis`, `native_analysis_status`, `native_control_analysis`, `native_configure_interactive`, `native_control_interactive`, `native_interactive_status` |
-| Numeric verification | `native_read_waveform`, `native_measure_waveform`, `native_verify_waveform`, `native_decode_seven_segment` |
-| Parameter experiments | `native_run_parameter_sweep`, `native_start_experiment`, `native_experiment_status`, `native_list_experiments`, `native_cancel_experiment`, `native_retry_experiment` |
-| Presentation and reports | `native_check_layout`, `native_plan_wire_route`, `native_auto_route_wire`, `native_export_image`, `native_export_interactive_image`, `native_export_experiment_report` |
+- Use tool schemas already supplied by the client. Discover missing tools once when necessary; do not enumerate capabilities before every phase.
+- Open a source with a workflow `session` stage (`mode: open`) or `native_open_copy`. Use `mode: create` for a new circuit and `mode: attach` for an explicitly selected existing window. Owned startup requires other Multisim windows to be closed. Closing an attached session detaches and leaves the user's window open.
+- Consume initial state and prior results. Do not separately query runtime status, sheets, all components and all wires when the needed data is already available.
+- Use `native_prepare_components` for **unknown component types whose pins or value slots affect the design**. Submit all those types together. Existing prepared metadata is cached for the session. Known indexed parameters and primary `value` placement can go straight into an edit stage.
 
-This map covers the current 67-tool interface; availability and parameter types come from the connected server's schemas.
+## Plan once, execute by phase
 
-## Build and edit efficiently
+1. Describe the known components, values, connections, analyses, acceptance criteria and output paths in one plan. Group related edits into a stage; up to 100 edits share a rollback checkpoint. Use `bind` names and `{"$ref":"binding.component.id"}` instead of asking the agent to read intermediate IDs. Results and bounded numeric offsets can feed later steps.
+2. Use placement `value: 1000` or `value: "1k"` when the component has exactly one `role: value` slot. The executor resolves its index. For other parameters, select an explicit index or an unambiguous role/name. A resistor's model option is not its resistance.
+3. Use exact named pins from known metadata. The executor resolves actual placed connectors and their coordinates before wiring. Unknown pin schemas need one consolidated preparation round, not a query after every placement.
+4. Put measurements and criteria directly on the `analysis` stage. A voltage selector can use `{ref, pin}` with a bound component ID; current uses `{current: component}`. This avoids separate netlist, vector lookup, waveform read and verification calls for ordinary acceptance.
+5. Follow with `layout`, `save` and `export` stages as requested. Analysis already performs netlist checking. `save` verifies an independently reopened copy by default. After `verification.passed: true`, a second close/open verification is unnecessary. Inspect the requested native export for visual acceptance.
+6. For a plan spanning several agent calls, use `native_session_changes` and pass its `revision` as `expected_revision`. Reuse unchanged metadata. The server detects stale plans and rebinds uniquely identifiable objects across controlled native refreshes; ambiguous bindings stop execution.
 
-Read [references/editing.md](references/editing.md) for batch argument names, wire branches, hierarchy and image export options.
+## Wait and recover at decision boundaries
 
-1. Read `page.width`, `page.height` and `page.bounds` before placing parts. Coordinates start at the top left and use **96 sheet units per inch**. The bundled blank sheet is **960 × 720**; printing-paper dimensions are separate. Default placement anchors the library graphic origin, which is neither necessarily the symbol center nor a pin. Use `anchor: center`, or `anchor: pin` with an exact `pin` name for planned placement. **Read returned actual pins before routing**; placement can snap to the grid.
-2. Search the real library. Check `Family_Name`, `Group_Name` and the placed model rather than relying on a part's name or reference prefix. An adjustable resistor is `RESISTOR_VIRTUAL`, family `RESISTOR`, group `Basic`; similarly named 3D parts can belong to `3D_VIRTUAL`.
-3. Select the electrical value using parameter metadata: **`role: "value"`**, its name and unit. Use that descriptor's `index`. For `RESISTOR_VIRTUAL`, index **1** is `resistance` in ohms; index **0** is `model_option`. Setting index 0 to 1000 does not set a 1 kΩ resistance. For other parts, inspect their descriptors rather than carrying this index over.
-4. Connect exact pin names from the current component results. A line touching a symbol visually does not establish a native electrical connection. Power symbols such as VCC and VEE can share a reference: select their current component `id` for movement, rotation, wiring and contact processing. `component_ref` and batch `ref` accept that ID. Wire endpoints expose `component_id`; `native_list_wires(component_ref: id)` isolates one symbol, while a shared reference returns all matching symbols. Reread IDs after handle invalidation.
-5. Group known edits in `native_edit_batch`, with `include_state: true`, instead of rereading after every change. Placement can include indexed parameters. Default `atomic: true` rolls back this batch on failure; `atomic: false` retains completed steps. Earlier successful calls are preserved. On error, inspect `rollback_scope`, `completed_operations`, `handles_invalidated` and returned `state`. If the part or pin schema is unknown, place and inspect it before constructing dependent edits.
-6. After topology edits, check the netlist. If `handles_invalidated: true`, use its returned fresh `state`; if absent, reread the relevant objects. Undo, redo and rollback can also invalidate pointer IDs. Prefer component reference names for subsequent edits.
-7. Before saving, compare the complete `content_bounds` with `page.bounds`, including symbols, wires, labels and text. For a normal finished schematic, fit the circuit inside the sheet with a margin. Use a coherent layout edit or the native `sheetSize` batch operation; image cropping does not repair saved page geometry. See the saved-sheet procedure in [references/editing.md](references/editing.md).
-8. Save the requested absolute `.ms14` output before closing an owned session. Output directories must exist; existing outputs require `overwrite: true`. `native_save_copy` checks every sheet's content bounds and verifies a separately reopened copy by default, retaining active object handles. Inspect `page_check` and `verification`; use `allow_off_page: true` only for an intentional off-page layout. `verify: false` skips readback.
+`native_run_workflow` waits up to 30 seconds by default. Inspect `status`: `complete` is finished; `running` needs `native_workflow_status(workflow_id, wait_timeout: 30)`. Keep a nonzero wait for ongoing work rather than repeatedly polling. `failed`, `needs_input`, `cancelled` and `interrupted` are not successful completion.
 
-## Verify the electrical result
+The result includes completed stages, the failed stage, diagnostics, key measurements and artifact paths. Fetch `detail: true` only when bindings or full diagnostics are needed. Use `native_control_workflow(action: resume)` to retry the unfinished tail explicitly; `replacement_steps` can replace that tail without rebuilding successful stages. After external edits, inspect the new state and supply its revision. Use `cancel` to interrupt analysis or stop at a native edit-slice boundary.
 
-Read [references/analysis.md](references/analysis.md) for measurement schemas, scanned displays, AC sweeps and persistent experiments.
+An edit-stage failure restores that stage, retaining earlier successful stages. Analysis and output failures preserve earlier edits and completed files. Automatic preparation and geometry repair do not justify changing electrical values or solver settings to force acceptance. Change the design when the evidence calls for it.
 
-- Check the generated SPICE source and actual parameter values. A resistor line containing `0.0` represents zero resistance; it is not merely a display format for an unset 1 kΩ value.
-- Waveform numbers retain the native simulator's SI values: voltage **V**, current **A**, time **s**, frequency **Hz**. **`-0.006 A` is −6 mA; `-6e12 A` is not −6 mA.** Do not invent an fA conversion to make a result match expectations. Inspect the generated source, raw samples and the selected parameter slot.
-- For a 12 V divider with two 1 kΩ resistors, verify both the **6 V midpoint** and the **−0.006 A source current**. A plausible midpoint alone can conceal zero-valued resistors.
-- Use vector names returned by the actual analysis, not guessed node numbers. Verify the requested behavior from measurements or decoded samples; a successful tool call or a momentary screenshot is insufficient evidence.
-- Measurements and acceptance criteria both use `id`; criteria also accept legacy `measurement`. Use the nested tool schema to choose fields. `native_result.error_count` counts actual errors; `native_status_record_count` includes cumulative native status records and is not a failure count.
-- On failed analysis, inspect `native_diagnostics` and the returned diagnostic file. Recheck topology, values and simulation models before changing analysis settings. Use transient UIC only when appropriate to the requested circuit.
+## Native geometry and values
 
-## Interactive simulation and lit displays
+- Coordinates use top-left sheet units, **96 units per inch**. The blank sheet is **960 × 720**. `anchor: center` or `anchor: pin` describes placement intent; grid snapping can change actual coordinates. Keep the complete drawing inside the actual sheet before saving. `fit_content` changes image framing only.
+- Library names can resemble unrelated 3D parts. Check family/group and model metadata. An adjustable resistor is `RESISTOR_VIRTUAL`, family `RESISTOR`, group `Basic`; its primary resistance is index **1**, while index **0** is `model_option`.
+- VCC/VEE symbols can share a reference. Bind their individual placement results or select current IDs. Do not treat a shared network name as a unique placed object. Standalone undo, redo and netlist refresh may invalidate raw IDs.
+- A visually touching line is not a native electrical connection. Layout checks distinguish electrical attachment from drawn endpoint alignment. Use `repair_geometry` when geometry is defective; preserve electrical connectivity.
+- Native samples use SI units: V, A, s and Hz. A 12 V divider with two 1 kΩ resistors should give **6 V and −0.006 A**. Never invent a scaling factor to make an incorrect current agree.
 
-Use `native_control_interactive(action)` for `start`, `pause`, `resume` and `stop`. Check `transition_confirmed` and actual `state_name`; a queued command is insufficient. `native_interactive_status(include_displays: true)` returns native segment states, decoded digits and simulated time. Stop interactive simulation before editing, checking the netlist or running numeric analysis. Starting after numeric analysis automatically cleans its simulator context.
+## Interactive displays
 
-For slow interactive LED circuits, stop simulation and configure `native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` before starting. Choose the step from the fastest relevant circuit signal and verify frequency and output order; 1 ms is intended for low-frequency LED behavior. Read `interactive_options.last_start` to confirm the actual native parameters. Configuration lasts for this session's MCP-started runs; it is not saved in the circuit. Call without arguments to inspect or with `reset: true` to restore defaults.
+A workflow `interactive` stage configures, starts, waits for requested display states, captures several native frames and stops by default. Supply `active_component` and `expected_digit` for each capture. Multiplexed displays light successively; preserve each actual frame and its reported state. Use a `decode` stage on transient data to verify stable scanning over multiple cycles. A single lit frame is not numerical proof of the whole sequence.
 
-For a real lit screenshot, use `native_export_interactive_image`, optionally with `active_component: "DS1"` and `wait_timeout: 15`. It captures an actual native runtime frame and reports its segment states. A multiplexed circuit lights digits successively: capture each reference separately and verify the returned digit; an instantaneous frame does not show all four phases at once. Paused simulation cannot advance to another digit, so resume first. Numerical waveform decoding and live display readout provide separate evidence.
+Choose time steps for the fastest relevant signal. A 1 ms step with real-time pacing suits low-frequency LED behavior, not every multiplexed circuit. Stop interactive simulation before editing or numeric analysis. For individual controls and waveform details, read [references/analysis.md](references/analysis.md).
 
-## Finish the requested artifact
+## Deliver
 
-Use `native_check_layout` when checking wire attachment or geometry. Compare `graphic_position` with grid-snapped `x`/`y`; electrical connectivity alone does not prove visual attachment. For visible gaps, call `native_repair_wire_geometry` to synchronize symbols, junctions and wire endpoints in one undoable edit. Save and reopen the result before accepting it. Move a label with `native_move_component_label`, choosing `kind: reference` or `kind: value`, rather than moving the symbol. Validate the saved page with a whole-sheet export (`fit_content: false`, no `region`) at a suitable DPI. Images default to no frame and no grid; use `show_frame` and `show_grid` when requested. An optional content-fitted image or crop can follow; it does not establish that the saved circuit lies inside its sheet. Preserve an intentionally off-page layout when the user explicitly requests it.
-
-Report the saved circuit and requested exports, the measured result and any remaining failed criterion. Keep numeric verification distinct from visual inspection. If the user will validate the simulation themselves, deliver the edited artifact without starting additional experiments.
+Report the saved circuit and requested exports, measured acceptance and any remaining failed criterion. Distinguish numeric verification from visual inspection. If the user will validate simulation themselves, deliver the edit and requested geometry checks without adding experiments.

@@ -1188,7 +1188,79 @@ function arrangeComponentLabels(ref) {
   let y=(body.top+body.bottom-total)/2;
   labels.forEach((l,i)=>{moveComponentLabel({ref:c.id,kind:l.kind,x:body.right+9+(l.bounds.right-l.bounds.left)/2,y:y+heights[i]/2});y+=heights[i]+4;});
 }
+function sequenceValue(value,bindings){
+  if(Array.isArray(value))return value.map(v=>sequenceValue(v,bindings));
+  if(!value||typeof value!=='object')return value;
+  if(Object.keys(value).length===1&&'$ref' in value){
+    const path=value.$ref;if(typeof path!=='string'||!path||path.length>512)throw new Error('Invalid result reference');
+    let result=bindings;
+    for(const key of path.split('.')){
+      if(['__proto__','prototype','constructor'].includes(key)||!Object.prototype.hasOwnProperty.call(result||{},key))throw new Error('Unresolved result reference: '+path);
+      result=result[key];
+    }
+    return result;
+  }
+  for(const key of ['$add','$sub'])if(Object.keys(value).length===1&&key in value){
+    const terms=sequenceValue(value[key],bindings);
+    if(!Array.isArray(terms)||terms.length!==2||terms.some(v=>typeof v!=='number'||!Number.isFinite(v)))throw new Error(key+' requires two finite numbers');
+    return key==='$add'?terms[0]+terms[1]:terms[0]-terms[1];
+  }
+  return Object.fromEntries(Object.entries(value).map(([k,v])=>{
+    if(['__proto__','prototype','constructor'].includes(k))throw new Error('Invalid argument key');
+    return [k,sequenceValue(v,bindings)];
+  }));
+}
+function validateSequenceOperation(op,a){
+  const required={place:['name','x','y'],move:['ref','dx','dy'],alignPin:['ref','pin','x','y'],moveLabel:['ref','x','y'],transform:['ref'],
+    wire:['source','target'],connectEndpoint:['source','target'],route:['id','points'],autoWire:['id'],
+    setParameter:['ref','index'],addText:['text','x','y'],labelWire:['id','name'],splitWire:['id','x','y'],
+    rename:['ref','new_ref'],remove:[],connectTouching:[],sheetSize:['width','height'],sheetTitle:['title'],repairWireGeometry:[]};
+  if(!(op in required))throw new Error('Operation requires an individual native transaction: '+op);
+  for(const k of required[op])if(!(k in a))throw new Error(op+' requires '+k);
+  for(const k of ['ref','id','name','text','family','group','manufacturer','title','new_ref','expression','pin'])
+    if(k in a&&(typeof a[k]!=='string'||a[k].length>4096||a[k].includes('\0')))throw new Error('Invalid '+k);
+  for(const k of ['x','y','dx','dy','index','width','height'])if(k in a&&(!Number.isInteger(a[k])||Math.abs(a[k])>100000))throw new Error('Invalid '+k);
+  if(op==='place'&&!['origin','center','pin'].includes(a.anchor||'origin'))throw new Error('Invalid placement anchor');
+  if(op==='transform'&&(!(('angle' in a)||('axis' in a))||('angle' in a&&(!Number.isFinite(a.angle)||a.angle%90))||('axis' in a&&!['horizontal','vertical'].includes(a.axis))))throw new Error('Invalid transform');
+  if(op==='remove'&&!a.ref&&!a.id)throw new Error('remove requires ref or id');
+  if(op==='setParameter'&&((('value' in a)===('expression' in a))||a.index<0||a.index>=256||('value' in a&&!Number.isFinite(a.value))))throw new Error('Invalid parameter value or index');
+  if(op==='sheetSize'&&['width','height'].some(k=>a[k]<96||a[k]>8192))throw new Error('Sheet dimensions must be 96 to 8192');
+  if('points' in a&&(!Array.isArray(a.points)||a.points.length<2||a.points.length>1000||a.points.some(p=>!p||['x','y'].some(k=>!Number.isInteger(p[k])||Math.abs(p[k])>100000))))throw new Error('Invalid wire route');
+  if('parameters' in a){if(!Array.isArray(a.parameters)||a.parameters.length>256)throw new Error('Invalid parameters');a.parameters.forEach(p=>validateSequenceOperation('setParameter',{ref:'placement',...p}));}
+  for(const k of ['source','target'])if(k in a){const e=a[k];if(!e||!(typeof e.junction_id==='string'||(typeof e.ref==='string'&&typeof e.pin==='string')))throw new Error('Invalid '+k+' endpoint');}
+  if('refs' in a&&(!Array.isArray(a.refs)||a.refs.length<1||a.refs.length>100||a.refs.some(r=>typeof r!=='string'||!r)))throw new Error('Invalid component refs');
+}
+function editSequence(args){
+  if(!Array.isArray(args.operations)||args.operations.length<1||args.operations.length>8)throw new Error('Native edit slices support 1 to 8 operations');
+  const bindings={...(args.bindings||{})},results=[];
+  for(let index=0;index<args.operations.length;index++){
+    const op=args.operations[index];
+    try{
+      const a=sequenceValue(op.arguments||{},bindings);validateSequenceOperation(op.operation,a);
+      let result;
+      if(op.operation==='alignPin'){
+        const c=component(a.ref),pin=c.pins.find(p=>p.name===a.pin);
+        if(!pin)throw new Error('Alignment pin not found: '+a.pin);
+        result=move({ref:c.id,dx:a.x-pin.x,dy:a.y-pin.y});
+      }else result=op.operation==='move'?move(a):op.operation==='wire'?wire(a):editorHandlers[op.operation](a);
+      results.push(result);if(op.bind)bindings[op.bind]=result;
+    }catch(error){return {failed:true,failed_operation_index:index,error:String(error),results,bindings};}
+  }
+  return {failed:false,results,bindings};
+}
 const editorHandlers={
+  editSequence,
+  signalForPin:args=>{
+    const c=component(args.ref),ci=ciObject(ptr(c.id)),count=method('CIRCEXP.dll','?GetPortCount@CiComponent@@','int',['pointer'])(ci);
+    for(let n=0;n<count;n++){
+      const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);
+      if(returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)!==args.pin)continue;
+      const node=method('CIRCEXP.dll','?GetNode@CiComponent@@','pointer',['pointer','int'])(ci,n);
+      if(node.isNull())throw new Error('Pin has no electrical node: '+c.ref+'.'+args.pin);
+      return {ref:c.ref,pin:args.pin,signal:'V('+returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',node)+')'};
+    }
+    throw new Error('Electrical pin not found: '+c.ref+'.'+args.pin);
+  },
   wiringOptions,connectTouching,autoWire:rerouteNativeWire,
   componentBounds,synchronizeGraphics,circuitState,projectCircuitState,verifySavedCopy,componentLabels,moveLabel:moveComponentLabel,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),

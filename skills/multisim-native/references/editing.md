@@ -1,5 +1,7 @@
 # Native editing contracts
 
+For complete circuit tasks, prefer staged workflows in [workflows.md](workflows.md). Individual tools and edit batches remain useful for local changes and older servers.
+
 ## State and parameters
 
 Creation and opening return an initial `state`. `native_get_circuit_state(include_parameters: true)` returns current page bounds, sheet selection, component refs and pins, wire routes, labels, content bounds and indexed parameters.
@@ -85,8 +87,8 @@ For a finished schematic:
    ```
 
    Compute the required dimensions from the actual content bounds and margin; these numbers are an example. Resizing the sheet preserves component positions and electrical connections. Merely increasing width and height does not fix negative left/top coordinates. Such a layout requires moving its complete contents inward, including text, branches and wire routes; moving only the components can leave other objects behind.
-3. Reread the returned state to check containment. Save the `.ms14`, close the session after saving, then open a copy of that saved output. Verify that its sheet dimensions and content bounds persist. Select the appropriate sheet again when checking a multi-sheet project.
-4. Export the reopened saved sheet with `fit_content: false` and no `region`. Inspect this full-page image before producing any optional cropped image. If the user will verify simulation themselves, this geometry check does not require starting a simulation.
+3. Consume the returned state to check containment. Save with native readback enabled and inspect `page_check` and `verification`. A passing independently reopened copy already verifies persistence; close and reopen manually only when investigating a readback failure or when explicitly requested. Select the relevant sheet for a multi-sheet export.
+4. Export the verified sheet with `fit_content: false` and no `region`. Inspect this full-page image before producing any optional cropped image. If the user will verify simulation themselves, this geometry check does not require starting a simulation.
 
 An intentionally off-page layout or an image-only task can use content fitting directly when that matches the user's request.
 

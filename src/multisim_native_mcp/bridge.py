@@ -80,6 +80,9 @@ class NativeHost:
         self.undo_stack, self.redo_stack = [], []
         self.topology_dirty = False
         self.analysis_started = threading.Event()
+        self.native_call_count = 0
+        self.native_call_seconds = 0.
+        self.handle_generation = 0
         self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
         for name, args, result in [
             ('CreateJobObjectW', [w.LPVOID, w.LPCWSTR], w.HANDLE),
@@ -199,6 +202,7 @@ class NativeHost:
                             user = ctypes.WinDLL('user32')
                             user.ShowWindow.argtypes, user.ShowWindow.restype = [w.HWND, ctypes.c_int], w.BOOL
                             user.ShowWindow(hwnd, 0)
+                        self.handle_generation += 1
                         return {'session_id': folder.name, 'source_path': str(self.source),
                                 'working_copy': str(self.working), 'source_sha256': sha256(self.source),
                                 'component_count': len(components['components']), **info}
@@ -233,11 +237,13 @@ class NativeHost:
             timer.daemon = True
             timer.start()
             started = time.monotonic()
+            self.native_call_count += 1
             try:
                 return json.loads(self.agent.exports_sync.dispatch(operation, args or {}))
             except (frida.InvalidOperationError, frida.ProcessNotFoundError) as error:
                 raise RuntimeError(f'Native {operation} interrupted after {time.monotonic()-started:.1f}s; owned process exit={owned.poll()}: {error}') from error
             finally:
+                self.native_call_seconds += time.monotonic()-started
                 timer.cancel()
 
     def _message(self,message,data):

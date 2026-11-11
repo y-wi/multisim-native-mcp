@@ -13,36 +13,88 @@ from mcp.types import CallToolResult,TextContent
 from .jobs import ExperimentManager
 from . import __version__
 from .contracts import MeasurementRequest,AcceptanceCriterion,normalize_measurements,normalize_criteria
+from .workflow_contracts import ComponentRequest,WorkflowPlan,WorkflowStage
+from .workflows import WorkflowManager,NeedsInput
 
 host = EditorService()
 experiments = ExperimentManager(host)
+workflows = WorkflowManager(host)
 
 
 def checked(function):
     @wraps(function)
     def execute(*args, **kwargs):
         try:
+            if workflows.active and function.__name__ not in {
+                'native_runtime_status','native_workflow_status','native_control_workflow',
+                'native_read_waveform','native_measure_waveform','native_verify_waveform','native_decode_seven_segment'}:
+                raise RuntimeError('A workflow is running; wait with native_workflow_status or cancel it')
             if experiments.active and function.__name__ not in {
                 'native_runtime_status','native_experiment_status','native_list_experiments','native_cancel_experiment',
+                'native_workflow_status',
                 'native_read_waveform','native_measure_waveform','native_verify_waveform','native_decode_seven_segment'}:
                 raise RuntimeError('A native experiment is running; inspect or cancel it first')
             return function(*args, **kwargs)
         except NativeEditError as error:
             return CallToolResult(isError=True,structuredContent=error.details,
                 content=[TextContent(type='text',text=json.dumps(error.details,ensure_ascii=False))])
+        except NeedsInput as error:
+            detail={'error':str(error),'needs_input':True,'details':error.result}
+            return CallToolResult(isError=True,structuredContent=detail,
+                content=[TextContent(type='text',text=json.dumps(detail,ensure_ascii=False))])
         except Exception as error:
             raise ToolError(str(error)) from error
     return execute
 server = MCPServer('multisim-native', version=__version__,
                    instructions='Edit native Multisim objects in isolated copies or explicitly attached existing windows. '
+                   'For complete tasks, prefer native_run_workflow with dependent edits, analysis acceptance, save and export in one plan. '
+                   'Use result bindings instead of intermediate ID queries and wait with native_workflow_status rather than frequent polling. '
                    'Read exact pin names before wiring; save results before closing. '
                    'For repeated power references, select a current component ID from the circuit state. '
                    'Undo, redo and netlist refresh can invalidate memory IDs; reread objects afterward. '
                    'Read sheet bounds from the initial state or native_get_circuit_state before placing components. '
                    'Coordinates use top-left sheet units, 96 per inch, and may snap to grid. '
-                   'Use native_edit_batch for construction and consume its returned state. '
+                   'Use individual tools or native_edit_batch for local adjustments and consume returned state. '
                    'Waveform values use SI units; verify source current as well as output voltage. '
                    'Native Multisim schematic editing and analog analysis.')
+
+
+@server.tool()
+@checked
+def native_prepare_components(components: list[ComponentRequest], refresh: bool = False) -> dict:
+    """Prepare 1-50 library types together in the current session. Resolve exact candidates, probe actual pins and parameter slots, cache session metadata and restore the original drawing. Ambiguities return one consolidated issue list. Probe restoration invalidates native handles; consume the returned revision or use workflow result bindings."""
+    return workflows.prepare(components,refresh)
+
+
+@server.tool()
+@checked
+def native_run_workflow(plan: WorkflowPlan, wait_timeout: float = 30.) -> dict:
+    """Execute a typed circuit workflow: session, prepare, select, edit, wiring, netlist, layout, analysis with measurements/criteria, verify, decode, save, export, interactive captures, close. Result references use {\"$ref\":\"binding.component.id\"}; edit operations bind their result with bind. Native edits run in bounded slices with one rollback checkpoint per edit stage. Wait 0-30s; long jobs return an ID. Return summaries and a detailed record path. Existing single-step tools remain available for local adjustments."""
+    return workflows.start(plan,wait_timeout)
+
+
+@server.tool()
+@checked
+def native_workflow_status(workflow_id: str, wait_timeout: float = 30., detail: bool = False) -> dict:
+    """Wait up to 30s for workflow completion, failure or a decision boundary. Default returns stage outcomes, acceptance, outputs and call statistics. detail=true reads stored bindings and diagnostics. Use a nonzero wait instead of frequent polling."""
+    return workflows.status(workflow_id,wait_timeout,detail)
+
+
+@server.tool()
+@checked
+def native_control_workflow(workflow_id: str, action: Literal['cancel','resume'],
+        replacement_steps: list[WorkflowStage] | None = None, wait_timeout: float = 30.,
+        expected_revision: str | None = None) -> dict:
+    """Cancel at a native edit-slice boundary or interrupt analysis. Explicitly resume an unfinished workflow from its failed stage, retaining successful stages. Optional replacement_steps replace the remaining tail. Revision conflicts require a fresh expected_revision. A saved successful phase can be reopened after a service restart."""
+    replacements=[s.model_dump(exclude_none=True) for s in replacement_steps] if replacement_steps else None
+    return workflows.control(workflow_id,action,replacements,wait_timeout,expected_revision)
+
+
+@server.tool()
+@checked
+def native_session_changes(since_revision: str | None = None, include_parameters: bool = False) -> dict:
+    """Read a session revision and full or incremental native state. Passing the current revision returns changed=false. A known previous revision returns changed components, removed IDs, current wires and page. Unknown revisions return the full state. Use the revision to reject stale workflow plans."""
+    return workflows.session_state(since_revision,include_parameters)
 
 
 @server.tool()
@@ -583,5 +635,6 @@ def main():
     try:
         server.run(transport='stdio')
     finally:
+        workflows.shutdown()
         experiments.shutdown()
         host.close()

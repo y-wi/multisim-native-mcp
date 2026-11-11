@@ -2,6 +2,11 @@
 
 | Tool | Parameters |
 | --- | --- |
+| `native_run_workflow` | plan, wait_timeout |
+| `native_workflow_status` | workflow_id, wait_timeout, detail |
+| `native_control_workflow` | workflow_id, action, replacement_steps, wait_timeout, expected_revision |
+| `native_prepare_components` | components, refresh |
+| `native_session_changes` | since_revision, include_parameters |
 | `native_runtime_status` | — |
 | `native_diagnostics` | — |
 | `native_open_copy` | source_path |

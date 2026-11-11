@@ -1,0 +1,206 @@
+{
+  "plan": {
+    "steps": [
+      {
+        "id": "session",
+        "kind": "session",
+        "mode": "create",
+        "title": "Workflow divider"
+      },
+      {
+        "id": "wiring",
+        "kind": "wiring",
+        "connect_touching": false,
+        "autowire_on_connection": true
+      },
+      {
+        "id": "build",
+        "kind": "edit",
+        "operations": [
+          {
+            "operation": "place",
+            "bind": "supply",
+            "arguments": {
+              "name": "DC_POWER",
+              "ref": "V1",
+              "x": 108,
+              "y": 180,
+              "anchor": "pin",
+              "pin": "1",
+              "value": 12
+            }
+          },
+          {
+            "operation": "place",
+            "bind": "upper",
+            "arguments": {
+              "name": "RESISTOR_VIRTUAL",
+              "ref": "R1",
+              "x": 360,
+              "y": 180,
+              "anchor": "pin",
+              "pin": "1",
+              "value": 1000,
+              "family": "RESISTOR",
+              "group": "Basic"
+            }
+          },
+          {
+            "operation": "place",
+            "bind": "lower",
+            "arguments": {
+              "name": "RESISTOR_VIRTUAL",
+              "ref": "R2",
+              "x": 540,
+              "y": 180,
+              "anchor": "pin",
+              "pin": "1",
+              "value": 1000,
+              "family": "RESISTOR",
+              "group": "Basic"
+            }
+          },
+          {
+            "operation": "place",
+            "bind": "ground",
+            "arguments": {
+              "name": "GROUND",
+              "ref": "0",
+              "x": 108,
+              "y": 450,
+              "anchor": "pin",
+              "pin": "1"
+            }
+          },
+          {
+            "operation": "wire",
+            "arguments": {
+              "source": {
+                "ref": {
+                  "$ref": "supply.component.id"
+                },
+                "pin": "1"
+              },
+              "target": {
+                "ref": {
+                  "$ref": "upper.component.id"
+                },
+                "pin": "1"
+              }
+            }
+          },
+          {
+            "operation": "wire",
+            "arguments": {
+              "source": {
+                "ref": {
+                  "$ref": "upper.component.id"
+                },
+                "pin": "2"
+              },
+              "target": {
+                "ref": {
+                  "$ref": "lower.component.id"
+                },
+                "pin": "1"
+              }
+            }
+          },
+          {
+            "operation": "wire",
+            "arguments": {
+              "source": {
+                "ref": {
+                  "$ref": "lower.component.id"
+                },
+                "pin": "2"
+              },
+              "target": {
+                "ref": {
+                  "$ref": "supply.component.id"
+                },
+                "pin": "2"
+              }
+            }
+          },
+          {
+            "operation": "wire",
+            "arguments": {
+              "source": {
+                "ref": {
+                  "$ref": "supply.component.id"
+                },
+                "pin": "2"
+              },
+              "target": {
+                "ref": {
+                  "$ref": "ground.component.id"
+                },
+                "pin": "1"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "layout",
+        "kind": "layout"
+      },
+      {
+        "id": "dc",
+        "kind": "analysis",
+        "options": {
+          "analysis": "op"
+        },
+        "measurements": [
+          {
+            "id": "midpoint",
+            "metric": "mean",
+            "signal": {
+              "ref": {
+                "$ref": "lower.component.id"
+              },
+              "pin": "1"
+            }
+          },
+          {
+            "id": "current",
+            "metric": "mean",
+            "signal": {
+              "current": {
+                "$ref": "supply.component.id"
+              }
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "id": "midpoint",
+            "target": 6,
+            "absolute_tolerance": 1e-08
+          },
+          {
+            "id": "current",
+            "target": -0.006,
+            "absolute_tolerance": 1e-09
+          }
+        ]
+      },
+      {
+        "id": "save",
+        "kind": "save",
+        "output_path": "C:\\Circuits\\divider.ms14"
+      },
+      {
+        "id": "image",
+        "kind": "export",
+        "output_path": "C:\\Circuits\\divider.png"
+      },
+      {
+        "id": "close",
+        "kind": "close"
+      }
+    ]
+  },
+  "wait_timeout": 30
+}

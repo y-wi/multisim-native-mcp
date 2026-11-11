@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- Execute typed circuit workflows with dependent edits, native analysis, acceptance criteria, saved-copy verification and exports.
+- Bind intermediate results and resolve actual pins and primary-value parameter slots inside the server.
+- Prepare library components in batches and cache session metadata.
+- Group native edits into responsive UI-thread slices with rollback checkpoints per edit stage.
+- Wait for completion, cancel running work and resume unfinished stages with persistent diagnostics.
+- Track session revisions, return incremental state and rebind objects across controlled native refreshes.
+- Capture multiple requested live display states in one interactive stage.
+- Report workflow call counts, native RPC work and stage timings.
+- Update the agent skill with complete workflow examples and recovery guidance.
+
 ## 0.3.9
 
 - Move and rotate shared-reference power symbols by object ID, updating only their own physical pin attachments.

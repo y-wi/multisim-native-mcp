@@ -170,10 +170,60 @@ class EditorService(NativeHost):
             result=self.call('restoreSnapshot',checkpoint)
             result['host_restarted']=True
         self.topology_dirty=False
+        self.handle_generation += 1
         return result
 
     def edit(self, operation, args=None):
         return self.batch([{'operation':operation,'arguments':args or {}}])['results'][0]
+
+    def edit_sequence(self, operations, bindings, cancel=None):
+        """One checkpoint for a phase; bounded UI-thread slices resolve intermediate results."""
+        from .workflow_values import resolve,reference_roots
+        packed={'place','move','alignPin','moveLabel','transform','wire','connectEndpoint','route','autoWire',
+                'setParameter','addText','labelWire','splitWire','rename','remove','connectTouching',
+                'sheetSize','sheetTitle','repairWireGeometry'}
+        with self.lock:
+            if self.call('simulationInfo')['state'] in (1,2):
+                raise RuntimeError('Stop interactive simulation before editing')
+            checkpoint=self.checkpoint();results=[];current=dict(bindings);index=0
+            undo_before=list(self.undo_stack);redo_before=list(self.redo_stack)
+            try:
+                while index<len(operations):
+                    if cancel and cancel.is_set():raise RuntimeError('Workflow cancelled between native edit slices')
+                    end=index
+                    while end<min(index+8,len(operations)) and operations[end]['operation'] in packed:end+=1
+                    if end>index:
+                        roots=reference_roots(operations[index:end])
+                        value=self.call('editSequence',{'operations':operations[index:end],
+                            'bindings':{k:v for k,v in current.items() if k in roots}})
+                        if value['failed']:
+                            index+=value['failed_operation_index'];raise RuntimeError(value['error'])
+                        results.extend(value['results']);current.update(value['bindings'])
+                    else:
+                        op=operations[index];a=resolve(op.get('arguments',{}),current)
+                        previous_state=self.call('circuitState',{'include_parameters':True})
+                        previous_state['handle_epoch']=[self.process.pid,self.handle_generation]
+                        value=self.batch([{'operation':op['operation'],'arguments':a}])['results'][0]
+                        from .workflows import remap_bindings
+                        state=self.call('circuitState',{'include_parameters':True})
+                        state['handle_epoch']=[self.process.pid,self.handle_generation]
+                        current=remap_bindings(current,previous_state,state)
+                        results=remap_bindings(results,previous_state,state)
+                        results.append(value)
+                        if op.get('bind'):current[op['bind']]=value
+                        end=index+1
+                    self.topology_dirty=self.topology_dirty or any(op['operation'] in TOPOLOGY_MUTATIONS for op in operations[index:end]) or any(isinstance(r,dict) and r.get('topology_changed') for r in results)
+                    index=end
+                self.call('markModified')
+            except Exception as error:
+                self.restore(checkpoint)
+                self.undo_stack=undo_before;self.redo_stack=redo_before
+                raise NativeEditError(str(error),{'rolled_back':True,'rollback_scope':'edit_stage',
+                    'failed_operation_index':index,'completed_operations':0,'handles_invalidated':True,
+                    'rollback_checkpoint':checkpoint['path']}) from error
+            self.undo_stack=undo_before+[checkpoint];self.redo_stack.clear()
+            return {'results':results,'bindings':current,'undo_depth':len(self.undo_stack),
+                    'rollback_checkpoint':checkpoint['path']}
 
     def batch(self, operations, include_state=False, atomic=True):
         if not 1<=len(operations)<=100: raise ValueError('Provide 1 to 100 edit operations')
@@ -528,6 +578,7 @@ class EditorService(NativeHost):
                 self.source_hash=sha256(self.source) if self.source else None
                 self.undo_stack,self.redo_stack=[],[];self.topology_dirty=False
                 backup=self.checkpoint()
+                self.handle_generation += 1
                 return {**info,'owned':False,'backup':backup['path'],'source_path':str(self.source) if self.source else None}
             except Exception:
                 self.close();raise
