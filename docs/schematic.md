@@ -91,13 +91,13 @@ Before saving a finished schematic, check that `content_bounds` lies inside `pag
 
 Choose dimensions from actual content bounds; enlarging width and height does not correct negative left/top coordinates. Save and reopen the output to verify that the page contains the circuit, then inspect a whole-page image without `region` or `fit_content`. These image options change framing only and preserve the original saved-sheet dimensions.
 
-尺寸应依据实际内容边界确定；增加宽高不能解决左侧或上侧的负坐标。另存并重开工程，确认电路完整位于图纸内，再检查不使用 `region` 或 `fit_content` 的整页图片。这两个图片选项仅改变取景范围，会保留原有图纸尺寸。
+尺寸应依据实际内容边界确定；增加宽高不能解决左侧或上侧的负坐标。保存时原生回读会核对内容，纸外对象不会阻止保存。按需要检查整页或裁剪图片。这两个图片选项仅改变取景范围，会保留原有图纸尺寸。
 
 ## Images and labels / 图片与标签
 
-`native_export_image` renders at the requested DPI using the native engine. `dpi` accepts 36–600; `scale` applies additional scaling. Use `fit_content: true` and optional `padding` to include the complete circuit, including off-page objects. Alternatively, supply an absolute sheet-coordinate region:
+`native_export_image` renders at the requested DPI using the native engine. `dpi` accepts positive integers; `scale` applies additional scaling. Use `fit_content: true` and optional `padding` to include the complete circuit, including off-page objects. Alternatively, supply an absolute sheet-coordinate region:
 
-图片由原生引擎按指定 DPI 渲染，`dpi` 范围为 36–600，`scale` 可继续调整倍率。`fit_content: true` 配合 `padding` 可完整导出电路及图纸外对象；也可指定绝对图纸坐标区域：
+图片由原生引擎按指定 DPI 渲染，`dpi` 为正整数，`scale` 可继续调整倍率。`fit_content: true` 配合 `padding` 可完整导出电路及图纸外对象；也可指定绝对图纸坐标区域：
 
 Export defaults to a clean circuit image. Set `show_frame: true` to include the sheet border and title block, or `show_grid: true` to include the dot grid. Export restores the original display settings.
 
@@ -111,7 +111,7 @@ Export defaults to a clean circuit image. Set `show_frame: true` to include the 
 }
 ```
 
-Choose either `region` or `fit_content`. Export preserves electrical attachments and sheet dimensions; connector graphics are synchronized before rendering. The maximum image size is 32 million pixels. Whole-page export returns off-page references and rejects an export when every component lies outside the page.
+Choose either `region` or `fit_content`. Export preserves electrical attachments and sheet dimensions; connector graphics are synchronized before rendering. There is no MCP pixel quota. Bitmap file format and available memory determine rendering capacity. Whole-page export reports off-page references without blocking the export.
 
 `region` 与 `fit_content` 二选一。导出前会同步连接图形，保留电气连接和图纸尺寸，最大图片为 3200 万像素。整页导出会返回页外元件引用；所有元件均在页外时会提示改用适配内容或区域导出。
 
@@ -130,3 +130,5 @@ For a 12 V divider with two 1 kΩ resistors, verify both the 6 V midpoint and th
 12 V、两只 1 kΩ 的分压电路应结合真实阻值参数和 SPICE 源码，同时验证中点 6 V 与电源电流 −0.006 A。
 
 Add `persist:true` to `native_configure_wiring` to commit native application-wide preferences and verify reload. They survive a new Multisim process but are not `.ms14` content. To retain selected-sheet grid, border or bounds, use `native_configure_sheet_display` and save. Page-name edits now update the saved native page name, while the root window caption follows the filename. General source saves verify annotations and embedded models; model edits refresh all affected labels before saving. See [persistence ownership](persistence.md).
+
+Off-page wiring uses explicit orthogonal routes when the native router cannot route outside the sheet. Moving outside the sheet preserves attached wire geometry. The MCP does not reject these edits. Sheet dimensions must fit the native CUTRect work-area fields after unit conversion; these fields are signed 32-bit integers. Rotation accepts finite angles, including fractional degrees.

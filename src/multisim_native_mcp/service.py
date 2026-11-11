@@ -19,8 +19,12 @@ import uuid
 
 import frida
 from PIL import Image
+
 from .bridge import NativeHost, ROOT, INSTALL, sha256, editor_script
 from .paths import DATA_DIR
+
+# Native exports use their actual bitmap format and allocator bounds.
+Image.MAX_IMAGE_PIXELS = None
 
 MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
              'rename','addText','labelWire','splitWire','connectEndpoint','reconnect',
@@ -157,8 +161,6 @@ class EditorService(NativeHost):
                 b=state['content_bounds'];p=state['page']['bounds']
                 if b and (b['left']<p['left'] or b['top']<p['top'] or b['right']>p['right'] or b['bottom']>p['bottom']):
                     outside.append({'sheet':state['sheets'][state['sheet_index']]['title'],'page_bounds':p,'content_bounds':b})
-            if outside and not allow_off_page:
-                raise ValueError('Circuit content is outside the saved page. Move it inside or resize the sheet; use allow_off_page=true only for an intentional off-page drawing. '+json.dumps(outside,ensure_ascii=False))
             result=super().save_copy(output_path,overwrite)
             result.update(page_check={'passed':not outside,'outside_sheets':outside},handles_invalidated=False)
             if verify:
@@ -263,8 +265,8 @@ class EditorService(NativeHost):
                 if not isinstance(value,bool):raise ValueError(key+' must be boolean')
                 options[key]=value
         if move_connection_limit is not None:
-            if isinstance(move_connection_limit,bool) or not isinstance(move_connection_limit,int) or not 1<=move_connection_limit<=10000:
-                raise ValueError('move_connection_limit must be an integer from 1 to 10000')
+            if isinstance(move_connection_limit,bool) or not isinstance(move_connection_limit,int) or not 1<=move_connection_limit<=2147483647:
+                raise ValueError('move_connection_limit must be a positive signed 32-bit integer')
             options['move_connection_limit']=move_connection_limit
         if reset and (options or persist):raise ValueError('Use reset alone to restore temporary wiring settings')
         with self.lock:
@@ -304,7 +306,7 @@ class EditorService(NativeHost):
         analysis_type=analysis_type.upper()
         if not isinstance(save_to_source,bool):raise ValueError('save_to_source must be boolean')
         if solver_options is None:solver_options={}
-        if not isinstance(solver_options,dict) or len(solver_options)>100:raise ValueError('solver_options must be a mapping of at most 100 options')
+        if not isinstance(solver_options,dict):raise ValueError('solver_options must be a mapping')
         for key,value in solver_options.items():
             if not isinstance(key,str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',key):raise ValueError('Invalid solver option name')
             if value is not None and (not isinstance(value,(str,bool,int,float)) or isinstance(value,float) and not math.isfinite(value)):
@@ -417,7 +419,7 @@ class EditorService(NativeHost):
                     'rollback_checkpoint':checkpoint['path']}
 
     def batch(self, operations, include_state=False, atomic=True):
-        if not 1<=len(operations)<=100: raise ValueError('Provide 1 to 100 edit operations')
+        if not operations: raise ValueError('Provide nonempty edit operations')
         for op in operations:
             if op.get('operation') not in MUTATIONS or not isinstance(op.get('arguments',{}),dict):
                 raise ValueError('Unsupported edit operation: '+str(op.get('operation')))
@@ -477,36 +479,38 @@ class EditorService(NativeHost):
     def validate(op,args):
         if op=='connectTouching' and 'refs' in args:
             refs=args['refs']
-            if not isinstance(refs,list) or not 1<=len(refs)<=100 or any(not isinstance(ref,str) or not ref for ref in refs):
-                raise ValueError('Provide 1 to 100 nonempty component references')
+            if not isinstance(refs,list) or not refs or any(not isinstance(ref,str) or not ref for ref in refs):
+                raise ValueError('Provide nonempty component references')
         if op=='place':
             if args.get('anchor','origin') not in ('origin','center','pin'):raise ValueError('Placement anchor must be origin, center or pin')
             if args.get('anchor')=='pin' and not isinstance(args.get('pin'),str):raise ValueError('Placement with anchor=pin requires the exact pin name')
         if op=='place' and 'parameters' in args:
-            if not isinstance(args['parameters'],list) or len(args['parameters'])>256:raise ValueError('Provide at most 256 component parameters')
+            if not isinstance(args['parameters'],list):raise ValueError('Provide a component parameter list')
             for parameter in args['parameters']:
                 if not isinstance(parameter,dict) or (('value' in parameter)==('expression' in parameter)):raise ValueError('Each parameter needs index and exactly one value or expression')
                 EditorService.validate('setParameter',parameter)
-        if op=='sheetSize' and any(not isinstance(args.get(k),int) or not 96<=args[k]<=8192 for k in ('width','height')):
-            raise ValueError('Sheet width and height must be 96 to 8192 native pixels')
+        if op=='sheetSize' and any(not isinstance(args.get(k),int) or not 0<args[k]<=2147483647 for k in ('width','height')):
+            raise ValueError('Sheet width and height must be positive signed 32-bit integers')
+        if op=='sheetSize' and any(round(args[k]/96*25.4*500000)>2147483647 for k in ('width','height')):
+            raise ValueError('Sheet dimensions exceed the native signed 32-bit CUTRect work-area format')
         for key in ('x','y','dx','dy'):
-            if key in args and (not isinstance(args[key],int) or abs(args[key])>100000):
-                raise ValueError(key+' must be an integer within 100000 sheet units')
+            if key in args and (not isinstance(args[key],int) or not -2147483648<=args[key]<=2147483647):
+                raise ValueError(key+' must fit a native signed 32-bit integer')
         if op=='setParameter':
-            if not isinstance(args.get('index'),int) or not 0<=args['index']<256: raise ValueError('Invalid parameter index')
+            if not isinstance(args.get('index'),int) or not 0<=args['index']<=2147483647: raise ValueError('Invalid parameter index')
             if 'value' in args and not math.isfinite(float(args['value'])): raise ValueError('Parameter must be finite')
-        if op=='transform' and 'angle' in args and args['angle']%90: raise ValueError('Rotation must be a multiple of 90 degrees')
+        if op=='transform' and 'angle' in args and not math.isfinite(args['angle']):raise ValueError('Rotation must be finite')
         if op=='transform' and 'angle' not in args and args.get('axis') not in ('horizontal','vertical'): raise ValueError('Invalid mirror axis')
         if op in ('rename','place','copy','replace'):
             for key in ('ref','new_ref'):
-                if key in args and not re.fullmatch(r'[A-Za-z0-9_.$:-]{1,128}',args[key]): raise ValueError('Invalid reference')
+                if key in args and (not isinstance(args[key],str) or not args[key] or '\0' in args[key]): raise ValueError('Invalid reference')
         if 'points' in args:
-            if not isinstance(args['points'],list) or not 2<=len(args['points'])<=1000: raise ValueError('Provide 2 to 1000 route vertices')
+            if not isinstance(args['points'],list) or len(args['points'])<2: raise ValueError('Provide at least two route vertices')
             for point in args['points']:
                 for key in ('x','y'):
-                    if not isinstance(point.get(key),int) or abs(point[key])>100000: raise ValueError('Invalid route coordinate')
+                    if not isinstance(point.get(key),int) or not -2147483648<=point[key]<=2147483647: raise ValueError('Invalid route coordinate')
         for key in ('name','text','title','family','group','manufacturer','expression'):
-            if key in args and (not isinstance(args[key],str) or len(args[key])>4096 or '\x00' in args[key]): raise ValueError('Invalid '+key)
+            if key in args and (not isinstance(args[key],str) or '\x00' in args[key]): raise ValueError('Invalid '+key)
 
     def history(self, action):
         with self.lock:
@@ -535,12 +539,11 @@ class EditorService(NativeHost):
         if path.exists() and not overwrite: raise FileExistsError('Output already exists')
         return path.resolve()
 
-    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18,show_frame=False,show_grid=False,*,interactive=False,active_component=None,wait_timeout=5.0):
-        if not isinstance(dpi,int) or not 36<=dpi<=600 or not math.isfinite(scale) or not .1<=scale<=8:
-            raise ValueError('Require 36 to 600 DPI and scale 0.1 to 8')
+    def export_image(self, output_path, overwrite=False, dpi=96, scale=1., region=None, fit_content=False,padding=18,show_frame=False,show_grid=False,*,interactive=False,active_component=None,wait_timeout=None,cancel=None):
+        if not isinstance(dpi,int) or dpi<=0 or not math.isfinite(scale) or scale<=0:
+            raise ValueError('DPI and scale must be positive')
         factor=dpi/96*scale
-        if not .1<=factor<=10:raise ValueError('Combined DPI/scale must be 0.1 to 10 times native size')
-        if not isinstance(padding,int) or not 0<=padding<=1000:raise ValueError('Padding must be 0 to 1000 sheet units')
+        if not isinstance(padding,int) or padding<0:raise ValueError('Padding must be nonnegative')
         if region is not None and fit_content:raise ValueError('Choose region or fit_content')
         if not isinstance(show_frame,bool) or not isinstance(show_grid,bool):raise ValueError('show_frame and show_grid must be boolean')
         with self.lock:
@@ -552,32 +555,29 @@ class EditorService(NativeHost):
                 if not content:raise ValueError('No circuit content to fit')
                 region={k:v+(-padding if k in ('left','top') else padding) for k,v in content.items()}
             if region is not None:
-                if set(region)!={'left','top','right','bottom'} or any(not isinstance(v,int) or abs(v)>100000 for v in region.values()):raise ValueError('Region must contain integer left/top/right/bottom sheet coordinates')
+                if set(region)!={'left','top','right','bottom'} or any(not isinstance(v,int) or not -2147483648<=v<=2147483647 for v in region.values()):raise ValueError('Region must contain integer left/top/right/bottom sheet coordinates')
                 width=region['right']-region['left'];height=region['bottom']-region['top']
                 if width<=0 or height<=0:raise ValueError('Export region must have positive size')
             else:
                 width,height=page['width'],page['height']
-                if state['components'] and all(c['bounds']['right']<0 or c['bounds']['bottom']<0 or c['bounds']['left']>width or c['bounds']['top']>height for c in state['components']):
-                    raise ValueError('Circuit is outside the page; use fit_content=true, an explicit region, or resize the sheet')
-            if math.ceil(width*factor)*math.ceil(height*factor)>32000000:raise ValueError('Export exceeds 32 million pixels')
             requested_region=region or page['bounds']
             # The native bitmap exporter always draws sheet coordinates along its
             # viewport boundary. Render a gutter outside the requested region so
             # removing that synthetic frame never removes real circuit content.
             gutter=0 if show_frame else 36
             render_region={k:v+(-gutter if k in ('left','top') else gutter) for k,v in requested_region.items()} if gutter else region
-            if math.ceil((width+2*gutter)*factor)*math.ceil((height+2*gutter)*factor)>32000000:
-                raise ValueError('Native export including frame gutter exceeds 32 million pixels; reduce DPI, scale or region size')
             intermediate=self.folder()/('native-image-'+uuid.uuid4().hex+'.bmp')
             render_args={'path':str(intermediate),'render_scale':factor,'show_frame':show_frame,'show_grid':show_grid,**({'region':render_region} if render_region else {})}
             captured=None
             try:
                 if interactive:
-                    deadline=time.monotonic()+wait_timeout
+                    deadline=None if wait_timeout is None else time.monotonic()+wait_timeout
                     while True:
+                        if cancel is not None and cancel.is_set():raise InterruptedError('Workflow cancelled')
                         captured=self.call('exportInteractiveImage',{**render_args,'active_component':active_component})
                         if captured['ready']:break
-                        if captured['state']==2 or time.monotonic()>=deadline:
+                        if captured['state'] not in (1,2):raise RuntimeError('Interactive simulation stopped before a frame was captured')
+                        if captured['state']==2 or deadline is not None and time.monotonic()>=deadline:
                             raise RuntimeError('No stable lit frame for '+str(active_component)+': '+('simulation is paused; resume before waiting for another scan phase' if captured['state']==2 else 'capture timed out'))
                         time.sleep(.03)
                 else:self.call('exportImage',render_args)
@@ -592,12 +592,12 @@ class EditorService(NativeHost):
                     'dpi':dpi,'scale':scale,'region':region or page['bounds'],'off_page_components':off_page,'show_frame':show_frame,'show_grid':show_grid,
                     'source':'native schematic image renderer',**({k:captured[k] for k in ('capture_mode','display_states','simulation')} if captured else {})}
 
-    def export_interactive_image(self,output_path,overwrite=False,dpi=144,scale=1.,region=None,fit_content=False,padding=18,show_frame=False,show_grid=False,active_component=None,wait_timeout=5.0):
-        if not math.isfinite(wait_timeout) or not 0<=wait_timeout<=15:raise ValueError('wait_timeout must be 0 to 15 seconds')
+    def export_interactive_image(self,output_path,overwrite=False,dpi=144,scale=1.,region=None,fit_content=False,padding=18,show_frame=False,show_grid=False,active_component=None,wait_timeout=None,*,cancel=None):
+        if wait_timeout is not None and (not math.isfinite(wait_timeout) or wait_timeout<0):raise ValueError('wait_timeout must be finite and nonnegative')
         if active_component is not None and (not isinstance(active_component,str) or not active_component):raise ValueError('active_component must be a component reference')
         self.interactive_status()
         return self.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding,show_frame,show_grid,
-                                 interactive=True,active_component=active_component,wait_timeout=wait_timeout)
+                                 interactive=True,active_component=active_component,wait_timeout=wait_timeout,cancel=cancel)
 
     def run_analysis(self, analysis='op', step=1e-5, stop=0.01, use_initial_conditions=False,
                      ac_sweep='dec',ac_points=20,ac_start=1.,ac_stop=100000.,*,persist=False,save_to_source=False,use_saved_settings=False):
@@ -704,8 +704,8 @@ class EditorService(NativeHost):
         configuration={}
         for name,value in [('time_step',time_step),('max_time_step',max_time_step)]:
             if value is None:continue
-            if isinstance(value,bool) or not isinstance(value,(float,int)) or not math.isfinite(value) or not 1e-12<=value<=1:
-                raise ValueError(name+' must be a finite number from 1e-12 to 1 second')
+            if isinstance(value,bool) or not isinstance(value,(float,int)) or not math.isfinite(value) or value<=0:
+                raise ValueError(name+' must be a finite positive number')
             configuration[name]=value
         if real_time is not None:
             if not isinstance(real_time,bool):raise ValueError('real_time must be boolean')
@@ -741,7 +741,7 @@ class EditorService(NativeHost):
 
     def control_interactive(self,action,wait_timeout=5.0):
         if action not in ('start','pause','resume','stop'):raise ValueError('Choose start, pause, resume or stop')
-        if not math.isfinite(wait_timeout) or not 0<=wait_timeout<=15:raise ValueError('wait_timeout must be 0 to 15 seconds')
+        if not math.isfinite(wait_timeout) or wait_timeout<0:raise ValueError('wait_timeout must be finite and nonnegative')
         with self.lock:
             before=self.interactive_status();state=before['state_name']
             target={'start':'running','resume':'running','pause':'paused','stop':'stopped'}[action]
@@ -752,11 +752,9 @@ class EditorService(NativeHost):
             cleaned=False
             if self.numeric_session_used or (action=='start' and before['remote_initialized'] and state=='stopped'):
                 self.call('interactiveCommand',{'action':'stop'})
-                cleanup_deadline=time.monotonic()+15
                 while True:
                     current=self.interactive_status()
                     if not current['remote_initialized']:break
-                    if time.monotonic()>=cleanup_deadline:raise RuntimeError('Numeric simulator cleanup did not complete before interactive control')
                     time.sleep(.1)
                 self.numeric_session_used=False;cleaned=True
                 if action=='stop':
@@ -772,7 +770,7 @@ class EditorService(NativeHost):
     def read_waveform(self,path,offset=0,limit=1000,plot_index=0):
         source=Path(path)
         if not source.is_absolute() or not source.is_file() or source.suffix.lower()!='.raw': raise ValueError('Choose an existing absolute ASCII RAW path')
-        if not 0<=offset or not 1<=limit<=1000: raise ValueError('Invalid waveform offset or limit')
+        if not 0<=offset or limit<1: raise ValueError('Invalid waveform offset or limit')
         first=parse_raw(source);plots=[first,*first.pop('additional_plots')]
         if not isinstance(plot_index,int) or not 0<=plot_index<len(plots):raise ValueError('Invalid waveform plot index')
         data=plots[plot_index];rows=data['rows']
@@ -812,7 +810,7 @@ class EditorService(NativeHost):
 
     def create(self,title='Circuit',output_path=None):
         if self.process and self.process.poll() is None: raise RuntimeError('Close or detach the current project first')
-        if not title or len(title)>128: raise ValueError('Provide a title of 1 to 128 characters')
+        if not title or not isinstance(title,str) or "\0" in title: raise ValueError('Provide a nonempty native title')
         directory=Path.cwd()
         if output_path:
             path=Path(output_path).expanduser()

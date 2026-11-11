@@ -27,8 +27,6 @@ def codex_document(text: str, entry: dict) -> str:
     servers = document.setdefault("mcp_servers", tomlkit.table())
     settings = tomlkit.table()
     settings.update(entry)
-    settings["startup_timeout_sec"] = 30
-    settings["tool_timeout_sec"] = 90
     servers["multisim_native"] = settings
     return tomlkit.dumps(document)
 

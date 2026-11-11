@@ -43,7 +43,7 @@ eval(input.source+`
  assert.equal(interactiveOptions().last_start.native_result,0);
  assert.equal(interactiveOptions().last_start.applied,true);
  assert.equal(execute(native),native); // Another GUI run is not a new MCP start.
- arm();interactiveStartup.expires=0;assert.equal(execute(native),native);
+ arm();interactiveStartup.expires=0;assert.ok(execute(native).includes('0.001'));
  interactiveOptions({reset:true});assert.equal(detached,1);assert.equal(interactiveOptions().configured,false);
 `);
 console.log(JSON.stringify({passed:true}));

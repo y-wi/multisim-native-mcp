@@ -88,7 +88,7 @@ def test_numeric_simulation_has_no_fixed_kill_timer(monkeypatch):
         def cancel(self):pass
     monkeypatch.setattr(bridge.threading,'Timer',Timer)
     assert host.call('simulate')['ok'] and not events
-    host.call('inspect');assert events==[90]
+    host.call('inspect');assert not events
     host.process=host.agent=None
 
 

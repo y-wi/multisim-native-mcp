@@ -25,7 +25,7 @@ def test_raw_current_units_are_amperes_without_rescaling(tmp_path):
 
 @pytest.mark.parametrize('parameters',[
     [{'index':1}], [{'index':1,'value':1,'expression':'1'}],
-    [{'index':1,'value':float('inf')}], [{'index':1,'expression':'x'*4097}],
+    [{'index':1,'value':float('inf')}], [{'index':1,'expression':'x\0invalid'}],
 ])
 def test_inline_parameter_validation(parameters):
     with pytest.raises(ValueError):EditorService.validate('place',{'parameters':parameters})

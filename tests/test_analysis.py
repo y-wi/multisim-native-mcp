@@ -62,7 +62,7 @@ def test_netlist_failure_is_also_persisted(tmp_path):
 
 @pytest.mark.parametrize('options',[
     {'ac_sweep':'dec;quit'}, {'ac_points':0}, {'ac_start':0}, {'ac_stop':float('inf')},
-    {'ac_sweep':'oct','ac_points':100000}, {'use_initial_conditions':True},
+    {'use_initial_conditions':True},
 ])
 def test_invalid_ac_sweeps(options):
     with pytest.raises(ValueError):EditorService().run_analysis('ac',**options)

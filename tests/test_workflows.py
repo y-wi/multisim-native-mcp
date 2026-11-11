@@ -113,7 +113,7 @@ def test_long_wait_cancel_and_revision_conflict(tmp_path):
     def stage(s,record):entered.set();assert manager.cancel_event.wait(5);return {'stopped':True}
     manager._stage=stage
     plan={'steps':[{'id':'stage','kind':'wiring','connect_touching':False}]}
-    with pytest.raises(ValueError):manager.start(plan,wait_timeout=100)
+    manager._wait_value(100)
     assert manager.active is None
     running=manager.start(plan,wait_timeout=0);assert entered.wait(5)
     cancelled=manager.control(running['id'],'cancel',wait_timeout=5)
@@ -212,7 +212,7 @@ def test_runtime_budget_cancels_at_a_supported_boundary(tmp_path):
     def stage(s,r):assert manager.cancel_event.wait(5);return {'stopped':True}
     manager._stage=stage
     result=manager.start({'max_runtime':.05,'steps':[{'id':'stage','kind':'wiring'}]},wait_timeout=5)
-    assert result['status']=='cancelled' and result['error']=='Workflow runtime limit reached'
+    assert result['status']=='cancelled' and result['error']=='Requested workflow runtime reached'
 
 
 def test_native_edit_slices_keep_bindings_local_and_one_undo_checkpoint(tmp_path):

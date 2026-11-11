@@ -51,7 +51,7 @@ function diagram(materialize = true) {
   native('DrwEngine.dll', '?GetAllSheetsInProject@CProject@@QBEXAAV?$vector@PAVCDrwSubSheet@@V?$allocator@PAVCDrwSubSheet@@@std@@@std@@@Z', 'void', ['pointer','pointer'])(p.proj, vec);
   const candidates = [];
   let begin = vec.readPointer(), end = vec.add(4).readPointer();
-  while (!begin.isNull() && begin.compare(end) < 0 && candidates.length < 1000) { const sh = begin.readPointer(); candidates.push({pointer:sh,...rtti(sh)}); begin=begin.add(4); }
+  while (!begin.isNull() && begin.compare(end) < 0) { const sh = begin.readPointer(); candidates.push({pointer:sh,...rtti(sh)}); begin=begin.add(4); }
   const selected = candidates.find(sh => /CSCH_CAPSubSheet/.test(sh.name) && (!selectedSheetId || sh.pointer.toString()===selectedSheetId));
   if (!selected && materialize) {
     native('DrwEngine.dll','?ShowAllSubSheets@CProject@@QAEXXZ','void',['pointer'])(p.proj);
@@ -73,7 +73,7 @@ function enumerate() {
   pos.writePointer(ptrFunction('Od101dll.dll', '?GetHeadPosition@CODComposite@@UBEPAU__POSITION@@XZ', ['pointer'])(d.composite));
   const next = ptrFunction('Od101dll.dll', '?GetNext@CODComposite@@UBEPAVCODComponent@@AAPAU__POSITION@@@Z', ['pointer', 'pointer']);
   const objects = [];
-  while (!pos.readPointer().isNull() && objects.length < 20000) {
+  while (!pos.readPointer().isNull()) {
     const p = next(d.composite, pos);
     objectHandles.set(p.toString(),p);
     objects.push({ id: p.toString(), ...rtti(p) });
@@ -85,7 +85,7 @@ function listChildren(composite) {
   pos.writePointer(ptrFunction('Od101dll.dll', '?GetHeadPosition@CODComposite@@UBEPAU__POSITION@@XZ', ['pointer'])(composite));
   const next=ptrFunction('Od101dll.dll','?GetNext@CODComposite@@UBEPAVCODComponent@@AAPAU__POSITION@@@Z',['pointer','pointer']);
   const result=[];
-  while(!pos.readPointer().isNull() && result.length<20000)result.push(next(composite,pos));
+  while(!pos.readPointer().isNull())result.push(next(composite,pos));
   return result;
 }
 function returnedString(dll,prefix,object) {
@@ -224,7 +224,7 @@ function wire(args) {
   }
   const w=connectNative(ptr(s.id),ptr(t.id),args.points);
   return {...wires().wires.find(item=>item.id===w.toString()),alreadyConnected:false,
-    routing_engine:args.points?'specified':wiringOptions().autowire_on_connection?'multisim-native':'orthogonal'};
+    routing_engine:args.points?'specified':wiringOptions().autowire_on_connection&&nativeRouteInBounds(s,t)?'multisim-native':'orthogonal'};
 }
 function wires() {
   const d=diagram(),pins=new Map();
@@ -237,7 +237,7 @@ function wires() {
     const vertices=Memory.alloc(4),count=Memory.alloc(4);vertices.writePointer(ptr(0));count.writeS32(0);
     native('Od101dll.dll','?GetVertices@CODLinkComp@@QAEXAAPAVCPoint@@AAH@Z','void',['pointer','pointer','pointer'])(object,vertices,count);
     const points=[];const v=vertices.readPointer();
-    if(count.readS32()>10000)throw new Error('Invalid native vertex count');
+    if(count.readS32()<0)throw new Error('Invalid native vertex count');
     for(let n=0;!v.isNull()&&n<count.readS32();n++)points.push({x:v.add(n*8).readS32(),y:v.add(n*8+4).readS32()});
     if(!v.isNull())freeNativeArray(v);
     function center(connector){return connectorGeometry(connector);}
@@ -264,7 +264,6 @@ function inspect() {
 function runJob(job) {
   activeNativeOperation=job.name;
   try {
-    clearTimeout(job.timer);
     const handlers = { inspect, enumerate, components, wires, markModified:()=>{native('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(project().proj,1);return {modified:true};}, prepareClose:()=>{closeWiringOptions();native('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(project().proj,0);return {ready:true};}, move:()=>move(job.args), save:()=>save(job.args), wire:()=>wire(job.args), diagramInfo: () => { const d=diagram();return {sheet:d.sheet.toString(),graph:d.graph.toString(),graphType:rtti(d.graph),candidates:d.candidates}; } };
     const handler=handlers[job.name] || (editorHandlers[job.name] && (()=>editorHandlers[job.name](job.args)));
     if (!handler) throw new Error('Unknown native operation');
@@ -323,12 +322,11 @@ rpc.exports = {
   dispatch(name, args = {}) {
     return new Promise((resolve, reject) => {
       const job = { name, args, resolve, reject };
-      job.timer=setTimeout(()=>{const i=jobs.indexOf(job);if(i>=0)jobs.splice(i,1);reject(new Error('Native host did not process the request within 15 seconds'));},15000);
       jobs.push(job);
       if (!wake(uiThread, 0, 0, 0)) { jobs.splice(jobs.indexOf(job), 1); reject(new Error('Native host UI thread could not be scheduled')); }
     });
   },
   close() { closeInteractiveOptions();closeWiringOptions();killTimer(hwnd,timerId);return true; },
   identity() { return { pid: Process.id, uiThread, hwnd: hwnd.toString(), nativeModules: Process.enumerateModules().length }; }
-  ,diagnostics(){return {netlist_errors:nativeErrorLog.slice(-100)};}
+  ,diagnostics(){return {netlist_errors:nativeErrorLog};}
 };

@@ -10,7 +10,7 @@ from .waveforms import parse_raw,numeric,signal_index
 
 
 def waveform_svg(data,signals):
-    if not signals or len(signals)>8:raise ValueError('Choose 1 to 8 waveform signals')
+    if not signals:raise ValueError('Choose waveform signals')
     width=960;height=220*len(signals)
     svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
          '<rect width="100%" height="100%" fill="white"/>']

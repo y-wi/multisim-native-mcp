@@ -51,9 +51,9 @@ Use `native_run_parameter_sweep` for a synchronous persisted experiment, or `nat
 }
 ```
 
-Read parameter indexes with `native_get_parameters` first. Up to four parameters and 100 Cartesian combinations are supported. Objective goals are `min`, `max`, `target`. `result.best` is the zero-based index of the best feasible trial. The original numeric parameters and expressions are restored after execution; the best candidate is returned for review.
+Read parameter indexes with `native_get_parameters` first. Parameter and Cartesian trial counts have no MCP ceiling. Objective goals are `min`, `max`, `target`. `result.best` is the zero-based index of the best feasible trial. The original numeric parameters and expressions are restored after execution; the best candidate is returned for review.
 
-先用 `native_get_parameters` 读取参数索引。支持最多 4 个参数、100 组组合。目标为最小值、最大值或最接近目标值。`result.best` 是最优可行候选的零起始索引。结束后恢复原数值和表达式，并返回选优结果。
+先用 `native_get_parameters` 读取参数索引。参数数量与组合数量不设 MCP 上限。目标为最小值、最大值或最接近目标值。`result.best` 是最优可行候选的零起始索引。结束后恢复原数值和表达式，并返回选优结果。
 
 Query records with `native_experiment_status` and `native_list_experiments`. Cancel with `native_cancel_experiment`; wait for terminal status and `result.restored`. To retry, close the current native session, then call `native_retry_experiment`. It opens a new copy of the saved source and creates a new ID with `retry_of`. Interrupted jobs remain queryable after service restart.
 
@@ -67,9 +67,9 @@ Query records with `native_experiment_status` and `native_list_experiments`. Can
 
 ## Reports and routing / 报告与布线
 
-`native_export_experiment_report` exports a saved record to an existing absolute directory. Choose `language: zh` or `en`; optional `signals` selects up to eight traces. Outputs: standalone HTML, Markdown, measurement CSV, native schematic PNG and waveform SVG.
+`native_export_experiment_report` exports a saved record to an existing absolute directory. Choose `language: zh` or `en`; optional `signals` selects any requested traces. Outputs: standalone HTML, Markdown, measurement CSV, native schematic PNG and waveform SVG.
 
-报告工具将记录导出到已有绝对目录。选择中文或英文，可指定最多八个波形。产物包括独立 HTML、Markdown、测量 CSV、原生电路 PNG 和波形 SVG。
+报告工具将记录导出到已有绝对目录。选择中文或英文，可指定需要的波形。产物包括独立 HTML、Markdown、测量 CSV、原生电路 PNG 和波形 SVG。
 
 `native_check_layout` checks real native connector coordinates, drawing pens, orthogonal segments and component graphic bounds. `native_plan_wire_route` previews the MCP obstacle-aware planner without editing. `native_auto_route_wire` uses Multisim's native router by default and preserves the wire ID and electrical endpoints. Choose `engine: "obstacle"` to apply the planner with `clearance` in sheet units. Read wire IDs again after operations that invalidate handles.
 

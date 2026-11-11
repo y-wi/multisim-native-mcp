@@ -32,7 +32,7 @@ def verify(measurements,criteria):
 def decode_display(data,digits,expected=None,start=None,stop=None,threshold=2.5,active_high=True,
                    select_threshold=2.5,select_active_high=True,settling=0.00002,min_dwell=0.00001):
     if data['complex']:raise ValueError('Display decoding needs transient samples')
-    if not 1<=len(digits)<=16:raise ValueError('Provide 1 to 16 digits in display order')
+    if not digits:raise ValueError('Provide digits in display order')
     if expected is not None and len(expected)!=len(digits):raise ValueError('Expected display length differs from digit count')
     threshold=finite(threshold);select_threshold=finite(select_threshold)
     settling=finite(settling);min_dwell=finite(min_dwell)

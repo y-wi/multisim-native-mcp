@@ -11,7 +11,7 @@ function simulationPropertyValue(item){return method('SHARUTIL.dll','?GetValue@C
 function simulationPropertyLabel(item){return method('SHARUTIL.dll','?GetLabel@CPropertyItem@@','pointer',['pointer'])(item).readPointer().readUtf16String();}
 function visitSimulationProperties(list,callback) {
   const count=method('SHARUTIL.dll','?GetCount@CPropertyList@@','int',['pointer'])(list);
-  if(count<0||count>10000)throw new Error('Unsupported native simulation property count');
+  if(count<0)throw new Error('Unsupported native simulation property count');
   for(let i=0;i<count;i++) {
     const item=Memory.alloc(128);method('SHARUTIL.dll','??0CPropertyItem@@QAE@XZ','pointer',['pointer'])(item);
     try {
@@ -120,7 +120,6 @@ function simulationField(text,path) {
   return simulationField(entry.raw,path.slice(1));
 }
 function simulationCatalog(text,path=[],depth=0) {
-  if(depth>16)throw new Error('Native simulation settings exceed supported nesting');
   const entries=simulationEntries(text),counts={};
   for(const e of entries)counts[e.label]=(counts[e.label]||0)+1;
   return entries.flatMap(e=>{
@@ -180,7 +179,7 @@ function validateNativeSimulationValue(field,value) {
     if(typeof value==='boolean')value=Number(value);
     if(!Number.isInteger(value)||value < -2147483648||value>2147483647)throw new Error(field.label+' requires a signed 32-bit integer');
   }else if(type==='string'){
-    if(typeof value!=='string'||value.length>32768||value.includes('\0'))throw new Error(field.label+' requires a native string (at most 32768 characters)');
+    if(typeof value!=='string'||value.includes('\0'))throw new Error(field.label+' requires a native string');
   }else throw new Error('Change scalar fields only; solver flags use solver_options');
   const key=field.label.toLowerCase();
   if(['tstep','tmax','tstop','reltol','abstol','vntol','chgtol','trtol','gmin','pivtol','pivrel','rshunt','defl','defw','npoints_per_variation'].includes(key)&&!(value>0))throw new Error(field.label+' must be positive');

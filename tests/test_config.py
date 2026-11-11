@@ -22,7 +22,7 @@ def test_replace_existing_server_removes_old_environment():
     entry = tomllib.loads(result)['mcp_servers']['multisim_native']
     assert entry['command'] == sys.executable
     assert 'env' not in entry
-    assert entry['startup_timeout_sec'] == 30
+    assert 'startup_timeout_sec' not in entry and 'tool_timeout_sec' not in entry
 
 
 def test_normal_configuration_does_not_pin_a_previous_project_globally():

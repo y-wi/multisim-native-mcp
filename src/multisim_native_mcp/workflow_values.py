@@ -1,4 +1,4 @@
-"""Bounded result references shared by workflow stages and native edit slices."""
+"""Result references shared by workflow stages and native edit slices."""
 import math
 
 
@@ -10,12 +10,11 @@ def reference_roots(value):
 
 
 def resolve(value, bindings, depth=0):
-    if depth>32:raise ValueError('Workflow references exceed 32 levels')
     if isinstance(value,list):return [resolve(v,bindings,depth+1) for v in value]
     if not isinstance(value,dict):return value
     if set(value)=={'$ref'}:
         path=value['$ref']
-        if not isinstance(path,str) or not path or len(path)>512:raise ValueError('Invalid result reference')
+        if not isinstance(path,str) or not path:raise ValueError('Invalid result reference')
         result=bindings
         for key in path.split('.'):
             if key in ('__proto__','prototype','constructor'):raise ValueError('Invalid result reference')

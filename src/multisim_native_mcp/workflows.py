@@ -186,7 +186,7 @@ class WorkflowManager:
 
     def prepare(self,components,refresh=False):
         requests=[c.model_dump() if isinstance(c,ComponentRequest) else ComponentRequest.model_validate(c).model_dump() for c in components]
-        if not 1<=len(requests)<=50:raise ValueError('Prepare 1 to 50 component types')
+        if not requests:raise ValueError('Prepare nonempty component types')
         with self.host.lock:
             session=str(self.host.working)
             if self.catalog_session!=session or refresh:self.catalog={};self.catalog_session=session
@@ -196,7 +196,7 @@ class WorkflowManager:
                 try:
                     self.host.call('wiringOptions',{'connect_touching':False})
                     for i,r in enumerate(missing):
-                        search=self.host.call('librarySearch',{'query':r['name'],'family':r['family'],'group':r['group'],'limit':100})
+                        search=self.host.call('librarySearch',{'query':r['name'],'family':r['family'],'group':r['group'],'limit':None})
                         candidates=[c for c in search['results'] if c.get('Component_Name','').casefold()==r['name'].casefold()]
                         if r['manufacturer']:candidates=[c for c in candidates if c.get('Manufacturer_Name','').casefold()==r['manufacturer'].casefold()]
                         if len(candidates)!=1:
@@ -241,8 +241,10 @@ class WorkflowManager:
         started=time.monotonic();calls=getattr(self.host,'native_call_count',0);seconds=getattr(self.host,'native_call_seconds',0.)
         record['status']='running';record['started']=time.time();record.pop('error',None);record.pop('failure',None)
         record.pop('cancel_reason',None)
-        budget=threading.Timer(record['plan'].get('max_runtime',600),lambda:self._request_cancel(record['id'],'Workflow runtime limit reached'))
-        budget.daemon=True;budget.start()
+        runtime=record['plan'].get('max_runtime');budget=None
+        if runtime is not None:
+            budget=threading.Timer(runtime,lambda:self._request_cancel(record['id'],'Requested workflow runtime reached'))
+            budget.daemon=True;budget.start()
         try:
             with self.host.lock:
                 steps=record['plan']['steps'];self._preflight_paths(steps[record['next_step']:])
@@ -256,7 +258,7 @@ class WorkflowManager:
                 for index in range(record['next_step'],len(steps)):
                     record['next_step']=index;stage=steps[index]
                     if self.cancel_event.is_set():raise InterruptedError('Workflow cancelled')
-                    if time.monotonic()-started>record['plan']['max_runtime']:raise InterruptedError('Workflow runtime limit reached')
+                    if runtime is not None and time.monotonic()-started>runtime:raise InterruptedError('Workflow runtime limit reached')
                     if self.host.agent and self.cache:
                         expected=self.cache['revision'];actual=self._capture()
                         if actual['revision']!=expected:raise NeedsInput('Circuit changed outside this workflow',{'expected_revision':expected,'actual_revision':actual['revision']})
@@ -286,7 +288,7 @@ class WorkflowManager:
                     self._capture();record['state']=self.cache;record['revision']=self.cache['revision']
                 except Exception as diagnostic:record['diagnostic_error']=str(diagnostic)
         finally:
-            budget.cancel()
+            if budget:budget.cancel()
             if self.cancel_event.is_set():record.update(status='cancelled',error=record.get('cancel_reason','Workflow cancelled'))
             record['stats']['native_calls']=record['stats'].get('native_calls',0)+getattr(self.host,'native_call_count',0)-calls
             record['stats']['native_seconds']=round(record['stats'].get('native_seconds',0)+getattr(self.host,'native_call_seconds',0.)-seconds,4)
@@ -449,17 +451,18 @@ class WorkflowManager:
                     expected=capture.get('expected_digit')
                     if expected is None:
                         frame=self.host.export_interactive_image(capture['output_path'],overwrite=a.get('overwrite',False),
-                            active_component=selected,wait_timeout=capture.get('wait_timeout',15))
+                            active_component=selected,wait_timeout=capture.get('wait_timeout'),cancel=self.cancel_event)
                     else:
                         output=Path(capture['output_path']);temporary=output.with_name('capture-'+uuid.uuid4().hex+output.suffix)
-                        deadline=time.monotonic()+capture.get('wait_timeout',15)
+                        timeout=capture.get('wait_timeout');deadline=None if timeout is None else time.monotonic()+timeout
                         try:
                             while True:
                                 if self.cancel_event.is_set():raise InterruptedError('Workflow cancelled')
                                 frame=self.host.export_interactive_image(str(temporary),overwrite=True,active_component=selected,
-                                    wait_timeout=max(0,deadline-time.monotonic()))
+                                    wait_timeout=None if deadline is None else max(0,deadline-time.monotonic()),cancel=self.cancel_event)
                                 if any(d['decoded']==expected and (not selected or d['ref']==selected) for d in frame['display_states']):break
-                                if time.monotonic()>=deadline:raise NeedsInput('Captured display does not match expected digit',frame)
+                                if self.cancel_event.is_set():raise InterruptedError('Workflow cancelled')
+                                if deadline is not None and time.monotonic()>=deadline:raise NeedsInput('Captured display does not match expected digit',frame)
                                 self.cancel_event.wait(.03)
                             temporary.replace(output);frame['path']=str(output)
                         finally:temporary.unlink(missing_ok=True)
@@ -538,7 +541,7 @@ class WorkflowManager:
 
     @staticmethod
     def _wait_value(value):
-        if not math.isfinite(value) or not 0<=value<=30:raise ValueError('wait_timeout must be 0 to 30 seconds')
+        if not math.isfinite(value) or value<0:raise ValueError('wait_timeout must be a finite nonnegative number')
 
     def _request_cancel(self,identifier,reason):
         with self.guard:
@@ -554,4 +557,4 @@ class WorkflowManager:
             if self.host.analysis_started.is_set():
                 try:self.host.agent.exports_sync.control('stop')
                 except Exception:pass
-        if self.thread:self.thread.join(timeout=30)
+        if self.thread:self.thread.join()

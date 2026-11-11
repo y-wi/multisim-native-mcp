@@ -52,7 +52,6 @@ def check_layout(components,wires):
 def orthogonal_path(start,end,obstacles,turn_cost=9):
     xs=sorted({start['x'],end['x'],*(r[k] for r in obstacles for k in ('left','right'))})
     ys=sorted({start['y'],end['y'],*(r[k] for r in obstacles for k in ('top','bottom'))})
-    if len(xs)*len(ys)>100000:raise ValueError('Routing grid exceeds 100000 nodes')
     def point(x,y):return {'x':xs[x],'y':ys[y]}
     def inside(p):return any(r['left']<p['x']<r['right'] and r['top']<p['y']<r['bottom'] for r in obstacles)
     if inside(start) or inside(end):raise ValueError('Route endpoint lies inside an obstacle')
@@ -62,7 +61,6 @@ def orthogonal_path(start,end,obstacles,turn_cost=9):
         _,cost,current=heapq.heappop(queue)
         if cost!=distance[current]:continue
         visited+=1
-        if visited>300000:raise ValueError('Routing search exceeds 300000 states')
         x,y,direction=current
         if (x,y)==target:
             route=[]
@@ -94,7 +92,7 @@ def simplify(points):
 
 
 def plan_wire(components,wire,clearance=9):
-    if not isinstance(clearance,int) or not 0<=clearance<=100:raise ValueError('Clearance must be 0 to 100 native units')
+    if not isinstance(clearance,int) or clearance<0:raise ValueError('Clearance must be nonnegative')
     obstacles=[{k:v+(-clearance if k in ('left','top') else clearance) for k,v in c['bounds'].items()} for c in components]
     lookup={c['ref']:i for i,c in enumerate(components)}
     leads=[]

@@ -52,13 +52,11 @@ def saving_host(tmp_path,states):
     return host,calls
 
 
-def test_save_checks_every_sheet_and_requires_explicit_off_page_intent(tmp_path):
+def test_save_checks_every_sheet_without_blocking_off_page_content(tmp_path):
     states=[scene(),scene(1)];states[1]['content_bounds']['right']=1200
     host,calls=saving_host(tmp_path,states)
     output=tmp_path/'output.ms14';output.write_bytes(b'previous')
-    with pytest.raises(ValueError,match='outside.*saved page'):host.save_copy(str(output),True)
-    assert output.read_bytes()==b'previous' and 'save' not in calls
-    result=host.save_copy(str(output),True,allow_off_page=True)
+    result=host.save_copy(str(output),True)
     assert not result['page_check']['passed'] and result['verification']['passed']
     assert result['verification']['sheets']==2 and not list(tmp_path.glob('verify-*.ms14'))
 

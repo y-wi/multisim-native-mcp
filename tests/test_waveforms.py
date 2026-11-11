@@ -27,7 +27,7 @@ Values:
     assert data['points'] == 2
 
 
-@pytest.mark.parametrize('count,points',[('0','1'),('1','0'),('10001','1'),('10','1000000')])
+@pytest.mark.parametrize('count,points',[('0','1'),('1','0'),('-1','1'),('1','-1')])
 def test_empty_or_oversized_plots(tmp_path,count,points):
     with pytest.raises(RuntimeError):parse_raw(raw_file(tmp_path,f'No. Variables: {count}\nNo. Points: {points}\nVariables:\n'))
 
@@ -51,11 +51,11 @@ def test_unexpected_trailing_content(tmp_path):
 @pytest.mark.parametrize('operation,args',[
     ('route',{'points':[{'x':0,'y':0}]}),
     ('route',{'points':[{'x':0,'y':0},{'x':float('inf'),'y':0}]}),
-    ('transform',{'angle':45}),
-    ('setParameter',{'index':256,'value':1}),
+    ('transform',{'angle':float('nan')}),
+    ('setParameter',{'index':-1,'value':1}),
     ('setParameter',{'index':1,'value':float('nan')}),
-    ('rename',{'ref':'R1; command'}),
-    ('sheetSize',{'width':10,'height':100}),
+    ('rename',{'ref':'R1\0invalid'}),
+    ('sheetSize',{'width':0,'height':100}),
 ])
 def test_invalid_edits(operation,args):
     with pytest.raises(ValueError):EditorService.validate(operation,args)

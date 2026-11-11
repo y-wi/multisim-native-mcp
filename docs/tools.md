@@ -97,9 +97,9 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 
 ### Saved circuits / 工程保存
 
-`native_save_copy` checks content bounds on every sheet and reopens a separate verification copy by default. It compares saved component values, positions, labels and wire routes while preserving the active document and its object handles. Move content inside the page or resize the real sheet before saving. Set `allow_off_page: true` for an intentionally off-page drawing, or `verify: false` to skip readback. Existing targets require `overwrite: true`; the previous file is backed up before replacement.
+`native_save_copy` checks content bounds on every sheet and reopens a separate verification copy by default. It compares saved component values, positions, labels and wire routes while preserving the active document and its object handles. Off-page content is saved normally and reported in page diagnostics; `allow_off_page` remains accepted for compatibility. Use `verify: false` to skip readback. Existing targets require `overwrite: true`; the previous file is backed up before replacement.
 
-`native_save_copy` 默认检查所有图纸的内容边界，并打开独立校验副本，比较保存后的元件值、位置、标签和导线路径，保留当前文档及对象句柄。保存前将内容移入图纸或调整实际图纸尺寸。有意保留纸外布局时使用 `allow_off_page: true`，使用 `verify: false` 可跳过重开校验。覆盖已有文件需传入 `overwrite: true`，替换前保留旧文件备份。
+`native_save_copy` 默认检查所有图纸的内容边界，并打开独立校验副本，比较保存后的元件值、位置、标签和导线路径，保留当前文档及对象句柄。纸外内容正常保存并在边界诊断中报告；`allow_off_page` 保留兼容。使用 `verify: false` 可跳过重开校验。覆盖已有文件需传入 `overwrite: true`，替换前保留旧文件备份。
 
 ### Interactive simulation / 交互仿真
 

@@ -30,7 +30,7 @@ def profile_path(profile='desktop'):
 
 def dsh_entry(entry):
     config={'serverName':'multisim_native','transport':'stdio','command':entry['command'],
-            'args':entry['args'],'toolCallTimeoutMs':120000}
+            'args':entry['args']}
     if entry.get('env'):config['env']=entry['env']
     return {'id':ENTRY_ID,'name':PLUGIN,'config':config}
 
@@ -64,6 +64,7 @@ def dsh_document(text,entry):
     if config.get('env') is not None and not isinstance(config['env'],Mapping):raise ValueError('DSH MCP env must be a mapping')
     environment=CommentedMap(config.get('env') or {})
     environment.update(desired['config'].pop('env',{}))
+    if config.get('toolCallTimeoutMs')==120000:config.pop('toolCallTimeoutMs')
     config.update(desired['config'])
     if environment:config['env']=environment
     chosen.setdefault('id',ENTRY_ID);chosen['name']=PLUGIN;chosen['config']=config

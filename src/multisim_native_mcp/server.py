@@ -72,14 +72,14 @@ def native_prepare_components(components: list[ComponentRequest], refresh: bool 
 @server.tool()
 @checked
 def native_run_workflow(plan: WorkflowPlan, wait_timeout: float = 30.) -> dict:
-    """Execute a typed circuit workflow: session, prepare, select, edit, wiring, netlist, layout, analysis with measurements/criteria, verify, decode, save, export, interactive captures, close. Result references use {\"$ref\":\"binding.component.id\"}; edit operations bind their result with bind. Native edits run in bounded slices with one rollback checkpoint per edit stage. Wait 0-30s; long jobs return an ID. Return summaries and a detailed record path. Existing single-step tools remain available for local adjustments."""
+    """Execute a typed circuit workflow: session, prepare, select, edit, wiring, netlist, layout, analysis with measurements/criteria, verify, decode, save, export, interactive captures, close. Result references use {\"$ref\":\"binding.component.id\"}; edit operations bind their result with bind. Native edits run in bounded slices with one rollback checkpoint per edit stage. Waiting is configurable; long jobs return an ID. Return summaries and a detailed record path. Existing single-step tools remain available for local adjustments."""
     return workflows.start(plan,wait_timeout)
 
 
 @server.tool()
 @checked
 def native_workflow_status(workflow_id: str, wait_timeout: float = 30., detail: bool = False) -> dict:
-    """Wait up to 30s for workflow completion, failure or a decision boundary. Default returns stage outcomes, acceptance, outputs and call statistics. detail=true reads stored bindings and diagnostics. Use a nonzero wait instead of frequent polling."""
+    """Wait for the requested duration (30s by default) for workflow completion, failure or a decision boundary. Default returns stage outcomes, acceptance, outputs and call statistics. detail=true reads stored bindings and diagnostics. Use a nonzero wait instead of frequent polling."""
     return workflows.status(workflow_id,wait_timeout,detail)
 
 
@@ -197,22 +197,20 @@ def native_connect_touching(component_refs: list[str] | None = None) -> dict:
 @checked
 def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
     """Move a native component by relative sheet units; preserve its native pin attachments. Use a current component ID when power symbols share a reference. Grid snapping applies."""
-    if max(abs(dx), abs(dy)) > 10000:
-        raise ValueError('Movement must be within 10000 native units per axis')
     return host.edit('move', {'ref': component_ref, 'dx': dx, 'dy': dy})
 
 
 @server.tool()
 @checked
 def native_save_copy(output_path: str, overwrite: bool = False, allow_off_page: bool = False, verify: bool = True) -> dict:
-    """Save to a specified .ms14 output while stopped. The current source path routes to normal source save without a separate overwrite flag. A different output acts as Save As in direct mode and becomes the current document; explicit copy mode preserves the original. Backups are internal. Native reopen verification is the default; allow_off_page=true permits an intentional off-page drawing. Other existing output files require overwrite=true."""
+    """Save to a specified .ms14 output while stopped. The current source path routes to normal source save without a separate overwrite flag. A different output acts as Save As in direct mode and becomes the current document; explicit copy mode preserves the original. Backups are internal. Native reopen verification is the default; Off-page content is saved; allow_off_page is retained for compatibility. Other existing output files require overwrite=true."""
     return host.save_copy(output_path,overwrite,allow_off_page,verify)
 
 
 @server.tool()
 @checked
 def native_save_source(allow_off_page: bool = False) -> dict:
-    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification. The user's edit request includes this save; no repeated confirmation is needed. Stop simulation first. In explicit copy mode this intentionally updates the original source. allow_off_page=true permits an intentional off-page drawing."""
+    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification. The user's edit request includes this save; no repeated confirmation is needed. Stop simulation first. In explicit copy mode this intentionally updates the original source. Off-page content is saved; allow_off_page is retained for compatibility."""
     return host.save_source(allow_off_page)
 
 
@@ -257,9 +255,9 @@ def native_create_circuit(output_path: str,title: str = 'Circuit') -> dict:
 
 @server.tool()
 @checked
-def native_search_library(query: str, limit: int = 20, family: str = '', group: str = '') -> dict:
+def native_search_library(query: str, limit: int | None = 20, family: str = '', group: str = '') -> dict:
     """Search native component names and IDs with actual family/group categories. Optional family/group filters use exact names; library names alone do not identify symbol or model type."""
-    if not 1 <= limit <= 100 or len(query)>128: raise ValueError('Invalid search size')
+    if limit is not None and limit<1: raise ValueError('Invalid search size')
     return host.call('librarySearch', {'query':query,'limit':limit,'family':family,'group':group})
 
 
@@ -328,8 +326,8 @@ def native_set_model_text(component_ref: str, text: str) -> dict:
 
 @server.tool()
 @checked
-def native_transform_component(component_ref: str, angle: int | None = None, mirror_axis: str | None = None) -> dict:
-    """Rotate a component by multiples of 90 degrees or mirror horizontally/vertically; keep wires attached to the same native pins."""
+def native_transform_component(component_ref: str, angle: float | None = None, mirror_axis: str | None = None) -> dict:
+    """Rotate a component by the supplied finite angle in degrees or mirror horizontally/vertically; keep wires attached to the same native pins."""
     if (angle is None)==(mirror_axis is None): raise ValueError('Provide angle or mirror_axis')
     return host.edit('transform',{'ref':component_ref,**({'angle':angle} if angle is not None else {'axis':mirror_axis})})
 
@@ -436,7 +434,7 @@ def native_list_projects() -> dict:
 @server.tool()
 @checked
 def native_edit_batch(operations: list[dict], include_state: bool = True, atomic: bool = True) -> dict:
-    """Apply 1-100 edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, autoWire (id), connectTouching (optional refs), setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (width/height 96-8192 sheet units)."""
+    """Apply a nonempty batch of edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, autoWire (id), connectTouching (optional refs), setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (positive native width/height)."""
     return host.batch(operations,include_state,atomic)
 
 
@@ -465,7 +463,7 @@ def native_check_netlist() -> dict:
 @checked
 def native_run_analysis(analysis: str = 'op', step: float = 0.00001, stop: float = 0.01, use_initial_conditions: bool = False,
     persist: bool = False, save_to_source: bool = False, use_saved_settings: bool = False) -> dict:
-    """Run real OP/transient analysis and export RAW/CSV. Default arguments apply to this run. persist=true also writes those arguments into native analysis configuration; add save_to_source=true to back up and verify-save the original. Alternatively use_saved_settings=true executes the stored analysis and solver options using native-generated commands. Saved transient execution is bounded to 100 s and 100000 requested steps; saved AC is also supported. Persist and use_saved_settings are exclusive. Results are external artifacts, separate from saved circuit configuration."""
+    """Run real OP/transient analysis and export RAW/CSV. Default arguments apply to this run. persist=true also writes those arguments into native analysis configuration; add save_to_source=true to back up and verify-save the original. Alternatively use_saved_settings=true executes the stored analysis and solver options using native-generated commands. Saved transient and AC execution are supported. Persist and use_saved_settings are exclusive. Results are external artifacts, separate from saved circuit configuration."""
     return host.run_analysis(analysis,step,stop,use_initial_conditions,persist=persist,save_to_source=save_to_source,use_saved_settings=use_saved_settings)
 
 
@@ -505,7 +503,7 @@ def native_interactive_status(include_displays: bool = False) -> dict:
 def native_configure_interactive(time_step: float | None = None, max_time_step: float | None = None,
     real_time: bool | None = None, reset: bool = False, persist: bool = True,
     save_to_source: bool = False) -> dict:
-    """Read/configure native interactive simulation. Steps are seconds (1e-12 to 1); real_time enables native pacing. By default persist=true reads/writes native document settings; use persist=false only for an intentional session override. These document settings survive normal save/close and ordinary GUI starts after reopening; saved_to_file=false means a save is still needed. Add save_to_source=true to save immediately with an internal backup and independent native reopen verification; external source changes block replacement. This preserves numeric-analysis and other solver options, and clears temporary overrides. Change options while stopped. reset=true restores automatic steps and real-time pacing for the chosen scope. For low-frequency LEDs, 0.001 s steps may improve speed; verify the fastest relevant signals."""
+    """Read/configure native interactive simulation. Steps are finite positive seconds; real_time enables native pacing. By default persist=true reads/writes native document settings; use persist=false only for an intentional session override. These document settings survive normal save/close and ordinary GUI starts after reopening; saved_to_file=false means a save is still needed. Add save_to_source=true to save immediately with an internal backup and independent native reopen verification; external source changes block replacement. This preserves numeric-analysis and other solver options, and clears temporary overrides. Change options while stopped. reset=true restores automatic steps and real-time pacing for the chosen scope. For low-frequency LEDs, 0.001 s steps may improve speed; verify the fastest relevant signals."""
     return host.configure_interactive(time_step,max_time_step,real_time,reset,persist=persist,save_to_source=save_to_source)
 
 
@@ -521,7 +519,7 @@ def native_control_interactive(action: Literal['start','pause','resume','stop'],
 def native_export_interactive_image(output_path: str, overwrite: bool = False, dpi: int = 144,
     scale: float = 1.0, region: dict[str,int] | None = None, fit_content: bool = False,
     padding: int = 18, show_frame: bool = False, show_grid: bool = False,
-    active_component: str | None = None, wait_timeout: float = 5.0) -> dict:
+    active_component: str | None = None, wait_timeout: float | None = None) -> dict:
     """Capture the actual instantaneous native interactive display state as PNG/BMP. Optionally wait for active_component (SEVEN_SEG_COM_A) to show a stable decoded digit, useful for multiplexed scans. Capture and readout occur in one UI-thread operation; no segment states are synthesized or accumulated. Returns native segment states and simulation time. Pause preserves the current phase; resume to capture another phase."""
     return host.export_interactive_image(output_path,overwrite,dpi,scale,region,fit_content,padding,show_frame,show_grid,active_component,wait_timeout)
 
@@ -580,7 +578,7 @@ def native_decode_seven_segment(raw_path: str, digits: list[dict], expected: str
 @checked
 def native_run_parameter_sweep(parameters: list[dict], analysis: dict, measurements: list[MeasurementRequest],
         criteria: list[AcceptanceCriterion] | None = None, objective: dict | None = None) -> dict:
-    """Run up to 100 native trials. Parameters: {ref,index,values}; analysis uses native run options. Constraints use measurement IDs. Optional objective: {measurement,goal:min|max|target,target}. Restore the original circuit after all trials; return feasible candidates and best index."""
+    """Run a native parameter sweep. Parameters: {ref,index,values}; analysis uses native run options. Constraints use measurement IDs. Optional objective: {measurement,goal:min|max|target,target}. Restore the original circuit after all trials; return feasible candidates and best index."""
     measurements=normalize_measurements(measurements)
     criteria=normalize_criteria(criteria or [],{m['id'] for m in measurements},allow_empty=True)
     return experiments.start(parameters,analysis,measurements,criteria,objective,background=False)
@@ -628,7 +626,7 @@ def native_retry_experiment(experiment_id: str) -> dict:
 @checked
 def native_export_experiment_report(experiment_id: str, output_directory: str, language: str = 'zh',
         title: str | None = None, signals: list[str] | None = None, overwrite: bool = False) -> dict:
-    """Export a saved experiment as standalone HTML, Markdown, measurement CSV, native circuit PNG and waveform SVG. Choose zh or en and up to eight plotted signals."""
+    """Export a saved experiment as standalone HTML, Markdown, measurement CSV, native circuit PNG and waveform SVG. Choose zh or en and the requested plotted signals."""
     from .reports import export_report
     return export_report(experiments.store.read(experiment_id),output_directory,language,title,signals,overwrite)
 
@@ -667,7 +665,7 @@ def native_auto_route_wire(wire_id: str, clearance: int = 9, engine: Literal['na
 @server.tool()
 @checked
 def native_export_image(output_path: str, overwrite: bool = False,dpi: int = 96,scale: float = 1.,region: dict[str,int] | None = None,fit_content: bool = False,padding: int = 18,show_frame: bool = False,show_grid: bool = False) -> dict:
-    """Render PNG/BMP natively at 36-600 DPI. Default is a clean circuit image; show_frame enables sheet border/title block, show_grid enables the dot grid. Rendering restores display preferences. Choose region or fit_content for cropping; cropping does not resize the saved sheet. At most 32 million pixels."""
+    """Render PNG/BMP natively at the requested positive DPI. Default is a clean circuit image; show_frame enables sheet border/title block, show_grid enables the dot grid. Rendering restores display preferences. Choose region or fit_content for cropping; cropping does not resize the saved sheet."""
     return host.export_image(output_path,overwrite,dpi,scale,region,fit_content,padding,show_frame,show_grid)
 
 

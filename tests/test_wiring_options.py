@@ -28,7 +28,7 @@ eval(input.source+`
  wiringOptions({autowire_on_move:false,connect_touching:true,move_connection_limit:24});
  assert.equal(values.AutowireOnMove,0);assert.equal(values.AutowirePinTouching,1);
  assert.equal(values.AutowirePinConnections,24);
- assert.throws(()=>wiringOptions({move_connection_limit:0}),/1 to 10000/);
+ assert.throws(()=>wiringOptions({move_connection_limit:0}),/positive signed 32-bit/);
  assert.throws(()=>wiringOptions({connect_touching:'true'}),/boolean/);
  assert.throws(()=>wiringOptions({reset:true,connect_touching:true}),/reset alone/);
  assert.throws(()=>temporaryWiring({connect_touching:false},()=>{throw new Error('operation failed');}),/operation failed/);

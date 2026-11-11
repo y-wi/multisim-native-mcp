@@ -4,7 +4,7 @@ For analysis plus acceptance, put measurements and criteria on a workflow `analy
 
 ## Analysis and raw data
 
-- `native_run_analysis(analysis: "op")` runs a DC operating point. For transient analysis use `analysis: "tran"`, `step` and `stop` in seconds. The requested grid is limited to 100,000 steps and `stop` to 100 seconds.
+- `native_run_analysis(analysis: "op")` runs a DC operating point. For transient analysis use `analysis: "tran"`, `step` and `stop` in seconds. Time and sample counts have no MCP workload ceiling; use finite positive values with step no larger than stop.
 - `use_initial_conditions: true` selects transient UIC; choose it based on circuit startup requirements, not as an automatic response to every convergence failure.
 - `native_run_ac_sweep` takes `sweep: "lin" | "dec" | "oct"`, `points`, `start_hz` and `stop_hz`. `lin` uses a total point count; the others use points per decade or octave. Configure the source's AC magnitude first.
 - Results include `vectors`, `raw_path`, `csv_path`, `netlist_path` and `diagnostic_path`. Inspect actual source values and waveform metadata when results disagree with circuit expectations. Preserve raw numeric values; do not scale large currents to force a match.
@@ -59,17 +59,17 @@ Use `native_run_parameter_sweep` for synchronous work or `native_start_experimen
 }
 ```
 
-Resolve the component's real value index before sweeping. Up to four parameters and 100 Cartesian combinations are supported. Goals are `min`, `max` and `target`; `result.best` is the zero-based index of the best feasible trial. Original numeric values and expressions are restored after execution; applying the selected candidate is a separate edit.
+Resolve the component's real value index before sweeping. Parameter and Cartesian trial counts have no MCP ceiling. Goals are `min`, `max` and `target`; `result.best` is the zero-based index of the best feasible trial. Original numeric values and expressions are restored after execution; applying the selected candidate is a separate edit.
 
 While a background experiment is active, inspect it with `native_experiment_status` or `native_list_experiments`, or request cancellation with `native_cancel_experiment`. Wait for terminal status and parameter restoration before editing. Save the source circuit before running a job that must be retryable. To retry, save any desired current edits, close the active session, then call `native_retry_experiment`; it opens the saved source in a new copy and returns a new ID linked by `retry_of`.
 
 ## Experiment reports
 
-`native_export_experiment_report` accepts a saved completed `experiment_id`, an existing absolute `output_directory`, `language: "zh" | "en"`, optional `title` and up to eight `signals`. It exports standalone HTML, Markdown, measurement CSV, native schematic PNG and waveform SVG. A normal analysis call does not create a persistent experiment record for this tool.
+`native_export_experiment_report` accepts a saved completed `experiment_id`, an existing absolute `output_directory`, `language: "zh" | "en"`, optional `title` and the requested `signals`. It exports standalone HTML, Markdown, measurement CSV, native schematic PNG and waveform SVG. A normal analysis call does not create a persistent experiment record for this tool.
 
 ## Interactive simulation
 
-`native_control_interactive` accepts `start`, `pause`, `resume`, `stop` and `wait_timeout` (0–15 seconds). Use `transition_confirmed` to check actual completion. `simulation_time_s` is the native GUI's displayed simulation time; it may have display rounding. Read actual `SEVEN_SEG_COM_A` segments with `native_interactive_status(include_displays: true)`.
+`native_control_interactive` accepts `start`, `pause`, `resume`, `stop` and `wait_timeout` (any finite nonnegative duration). Use `transition_confirmed` to check actual completion. `simulation_time_s` is the native GUI's displayed simulation time; it may have display rounding. Read actual `SEVEN_SEG_COM_A` segments with `native_interactive_status(include_displays: true)`.
 
 `native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` writes native document settings by default; use persist:false for temporary overrides. Document settings persist on normal save/close; subsequent `native_save_copy` preserves them for ordinary Multisim starts after reopening. Read document settings with `persist: true` and no values. To save immediately, add `save_to_source: true` to back up and replace it after independent native reopen verification. `saved_to_file: false` indicates that only the editable document was changed. Source conflicts stop replacement. `persist: true, reset: true` restores automatic steps and real-time pacing in the document; save it to retain the reset. Numeric analysis definitions and other solver options are preserved. Persistent changes clear temporary overrides so they cannot mask the document values.
 

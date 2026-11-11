@@ -57,7 +57,7 @@ def test_invalid_interactive_capture_options_fail_before_native_calls(args):
 
 @pytest.mark.parametrize('options',[
     {'time_step':0},{'time_step':float('nan')},{'max_time_step':float('inf')},
-    {'max_time_step':2},{'time_step':True},{'real_time':1},{'reset':1},
+    {'max_time_step':-2},{'time_step':True},{'real_time':1},{'reset':1},
     {'reset':True,'time_step':.001},
 ])
 def test_invalid_interactive_solver_options_do_not_reach_native_host(options):

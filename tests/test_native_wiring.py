@@ -70,7 +70,7 @@ def test_native_autowire_moves_touching_and_saved_branches(tmp_path):
     finally:h.close()
 
 
-def test_disabled_autowiring_and_off_page_failure_preserve_connections(tmp_path):
+def test_disabled_autowiring_and_off_page_routes_preserve_connections(tmp_path):
     h=EditorService()
     try:
         h.create('Wiring settings')
@@ -87,9 +87,9 @@ def test_disabled_autowiring_and_off_page_failure_preserve_connections(tmp_path)
         assert h.edit('move',{'ref':'R1','dx':0,'dy':9})['routing_engine']=='preserve'
         h.call('wiringOptions',{'autowire_on_connection':True})
         h.edit('place',{'name':'RESISTOR_VIRTUAL','family':'RESISTOR','group':'Basic','ref':'R3','x':1800,'y':270})
-        with pytest.raises(NativeEditError,match='inside the sheet'):
-            h.edit('wire',{'source':{'ref':'R2','pin':'2'},'target':{'ref':'R3','pin':'1'}})
-        assert len(h.call('wires')['wires'])==1
+        link=h.edit('wire',{'source':{'ref':'R2','pin':'2'},'target':{'ref':'R3','pin':'1'}})
+        assert link['routing_engine']=='orthogonal'
+        assert len(h.call('wires')['wires'])==2
         attached(h)
         h.close();h.create('Restored wiring settings')
         assert h.call('wiringOptions')==original

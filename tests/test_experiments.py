@@ -28,5 +28,4 @@ def test_cancel_before_first_trial_also_restores():
 
 
 def test_bound_cartesian_product_before_native_changes():
-    with pytest.raises(ValueError,match='100 trials'):
-        validate_spec([{'ref':r,'index':1,'values':list(range(11))} for r in ['R1','R2']],{},[{}],[],None)
+    assert validate_spec([{'ref':r,'index':1,'values':list(range(11))} for r in ['R1','R2']],{},[{'metric':'mean','signal':'V(1)'}],[],None)==121

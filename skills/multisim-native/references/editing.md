@@ -16,7 +16,7 @@ Here index 1 applies specifically to `RESISTOR_VIRTUAL`. Its index 0 is a model 
 
 ## Batch edits
 
-`native_edit_batch` takes 1–100 operations as one undo unit. Operations run in order; failure restores the checkpoint. Batch arguments use native operation keys, which differ from standalone tool parameter names:
+`native_edit_batch` takes a nonempty list of operations as one undo unit. Operations run in order; failure restores the checkpoint. Batch arguments use native operation keys, which differ from standalone tool parameter names:
 
 By default `atomic: true` rolls back this entire batch on failure. Choose `atomic: false` to preserve completed steps and restore only the failing operation. Earlier calls remain committed in either mode. Error results contain the rollback scope, preserved step count, handle invalidation flag and fresh state; consume these before another edit. A first-operation target lookup failure keeps handles intact.
 
@@ -42,13 +42,13 @@ Common batch operations:
 | `wire`, `connectEndpoint` | `source, target`, optional `points` for `connectEndpoint` |
 | `move` | `ref, dx, dy` (relative displacement) |
 | `moveLabel` | `ref, x, y`, optional `kind: reference | value` (absolute label center) |
-| `transform` | `ref, angle` (multiples of 90), or `ref, axis` (`horizontal` / `vertical`) |
+| `transform` | `ref, angle` (finite degrees), or `ref, axis` (`horizontal` / `vertical`) |
 | `route` | `id, points` |
 | `autoWire` | `id` (Multisim native router, preserving wire ID and electrical endpoints) |
 | `connectTouching` | optional `refs` list (current sheet if omitted) |
 | `rename` | `ref, new_ref` |
 | `addText` | `text, x, y` |
-| `sheetSize` | `width, height` (96–8192 sheet units) |
+| `sheetSize` | `width, height` (positive native dimensions; the converted CUTRect work area must fit signed 32-bit fields) |
 
 For other batch operations, consult the installed implementation or use the corresponding standalone tool with its published schema. Do not infer internal argument keys from tool names.
 
@@ -100,7 +100,7 @@ Example whole-page arguments for `native_export_image` after the saved-sheet che
 {"output_path":"C:/Circuits/divider.png","dpi":192,"fit_content":false}
 ```
 
-Use an existing absolute output directory. PNG and BMP are supported. `dpi` is 36–600, `scale` applies additional scaling, and the pixel budget is 32 million. Rendering uses the native engine and synchronizes connector graphics before export; electrical attachments and sheet dimensions are preserved. Use `native_repair_wire_geometry` for an explicit undoable correction, then save normally; native readback already verifies persistence.
+Use an existing absolute output directory. PNG and BMP are supported. `dpi` and `scale` are positive values without MCP maxima. Bitmap format and available memory determine actual rendering capacity. Rendering uses the native engine and synchronizes connector graphics before export; electrical attachments and sheet dimensions are preserved. Use `native_repair_wire_geometry` for an explicit undoable correction, then save normally; native readback already verifies persistence.
 
 Default `show_frame: false` and `show_grid: false` produce a clean report image. Set `show_frame: true` for sheet border/title block, and `show_grid: true` for the dot grid. These choices are temporary rendering options; the original display settings are restored.
 
@@ -108,4 +108,4 @@ For a detail image, use `fit_content: true` with optional `padding`, or `region:
 
 Move an overlapping reference with `native_move_component_label(component_ref, x, y)`. Coordinates specify the absolute label center; read `state.components[].labels` for actual bounds. Grid snapping can affect symbol placement, so use returned positions rather than requested coordinates when checking alignment.
 
-Normal saves update the current workspace/source file using `native_save_source`. A workflow `save` without output_path does the same. Save As changes the current document path. Closing saves pending edits by default; explicitly discard only when the task calls for it. Backups and checkpoints are internal, not extra deliverables. `native_open_copy` is for explicit comparisons and creates its editable file in the chosen workspace.
+Normal saves update the current workspace/source file using `native_save_source`. A workflow `save` without output_path does the same. Save As changes the current document path. Closing saves pending edits by default; skip saving only when the task calls for it. Backups and checkpoints are internal, not extra deliverables. `native_open_copy` is for explicit comparisons and creates its editable file in the chosen workspace.

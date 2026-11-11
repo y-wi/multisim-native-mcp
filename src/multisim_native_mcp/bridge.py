@@ -200,11 +200,10 @@ class NativeHost:
                 ready_after = time.monotonic() + 8
                 wait_idle = ctypes.WinDLL('user32').WaitForInputIdle
                 wait_idle.argtypes, wait_idle.restype = [w.HANDLE,w.DWORD],w.DWORD
-                deadline = time.monotonic() + 45
                 last_error = None
                 candidate = None
                 readiness = None
-                while time.monotonic() < deadline:
+                while True:
                     if self.process.poll() is not None:
                         raise RuntimeError(f'Multisim exited during startup with code {self.process.returncode}')
                     if time.monotonic() < ready_after or wait_idle(w.HANDLE(int(self.process._handle)),0) != 0:
@@ -216,6 +215,8 @@ class NativeHost:
                             readiness = self.session.create_script((ROOT / 'startup_agent.js').read_text(encoding='utf-8'),runtime='v8')
                             readiness.load()
                         if not readiness.exports_sync.ready():
+                            report=readiness.exports_sync.report()
+                            if report.get('startup_errors'):raise RuntimeError('Multisim startup error: '+json.dumps(report['startup_errors'],ensure_ascii=False))
                             time.sleep(0.25)
                             continue
                         if time.monotonic() < ready_after:
@@ -247,6 +248,7 @@ class NativeHost:
                         raise
                     except Exception as error:
                         last_error = str(error)
+                        if 'Multisim startup error:' in last_error:raise RuntimeError(last_error) from error
                         if 'SyntaxError:' in last_error: raise RuntimeError('Native agent syntax error: '+last_error) from error
                         if readiness:
                             try:
@@ -259,13 +261,19 @@ class NativeHost:
                             except Exception:
                                 pass
                         time.sleep(0.4)
-                raise TimeoutError('Multisim did not become ready: ' + str(last_error))
             except BaseException as error:
-                transient_startup=(not isolated and _startup_attempt==0 and self.agent is None and
-                    ((isinstance(error,TimeoutError) and locals().get('last_error') is None) or
+                transient_startup=(_startup_attempt==0 and self.agent is None and
+                    ('Multisim startup error:' in str(error) or
                      self.process and self.process.poll()==0xE0434352))
+                failed_copy=self.working if isolated else None
+                initial_hash=self.working_hash
                 self.close()
-                if transient_startup:return self._open(source_path,isolated,output_path,1)
+                if transient_startup:
+                    if failed_copy:
+                        if not failed_copy.is_file() or sha256(failed_copy)!=initial_hash:raise
+                        failed_copy.unlink()
+                        output_path=str(failed_copy)
+                    return self._open(source_path,isolated,output_path,1)
                 raise
 
     def call(self, operation: str, args: dict | None = None) -> dict:
@@ -275,10 +283,6 @@ class NativeHost:
             # Long numeric runs remain cancellable through the native analysis
             # controls; a fixed edit watchdog must not kill valid simulations.
             owned = self.process
-            timer=None
-            if operation!='simulate':
-                timer=threading.Timer(90,lambda:owned.kill() if self.owned and owned.poll() is None else None)
-                timer.daemon=True;timer.start()
             started = time.monotonic()
             self.native_call_count += 1
             try:
@@ -287,7 +291,6 @@ class NativeHost:
                 raise RuntimeError(f'Native {operation} interrupted after {time.monotonic()-started:.1f}s; owned process exit={owned.poll()}: {error}') from error
             finally:
                 self.native_call_seconds += time.monotonic()-started
-                if timer:timer.cancel()
 
     def _message(self,message,data):
         if message.get('payload',{}).get('analysis_started'): self.analysis_started.set()
@@ -356,11 +359,7 @@ class NativeHost:
                         self.process.terminate()
                 except Exception:
                     self.process.terminate()
-                try:
-                    self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=5)
+                self.process.wait()
             if self.agent and not self.owned:
                 try:
                     self.agent.exports_sync.close()

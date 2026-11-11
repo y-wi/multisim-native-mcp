@@ -2,6 +2,8 @@
 
 ## 0.5.0
 
+- Remove MCP workload ceilings for runtime, stages, edits, coordinates, analysis samples, sweeps, exports and result parsing; retain native data-format validation and optional caller-specified deadlines.
+
 - Default to real workspace documents and direct source editing; recovery files remain internal. Normal save/close updates the current file, matching existing windows are reused, and explicit comparison copies stay in the workspace.
 - Synchronize the skill, references and examples with 0.5.0 persistence and workspace defaults. Native simulations no longer inherit the fixed 25-second edit watchdog.
 - Discover and edit typed scalar settings across 19 native analysis profiles, including initial conditions, transient/AC settings, digital thresholds and 44 solver options.

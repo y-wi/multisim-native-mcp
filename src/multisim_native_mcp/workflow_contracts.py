@@ -13,14 +13,14 @@ class Contract(BaseModel):
 
 
 class ComponentRequest(Contract):
-    name: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1)
     family: str = ''
     group: str = ''
     manufacturer: str = ''
 
 
 class Stage(Contract):
-    id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_]{0,63}$')
+    id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_]*$')
 
 
 class SessionStage(Stage):
@@ -46,7 +46,7 @@ class SessionStage(Stage):
 
 class PrepareStage(Stage):
     kind: Literal['prepare']
-    components: list[ComponentRequest] = Field(min_length=1, max_length=50)
+    components: list[ComponentRequest] = Field(min_length=1)
 
 
 class ComponentSelector(Contract):
@@ -66,7 +66,7 @@ class ComponentSelector(Contract):
 
 class SelectStage(Stage):
     kind: Literal['select']
-    components: dict[str,ComponentSelector] = Field(min_length=1,max_length=100)
+    components: dict[str,ComponentSelector] = Field(min_length=1)
 
 
 class EditOperation(Contract):
@@ -76,12 +76,12 @@ class EditOperation(Contract):
                        'labelWire', 'replace', 'createSheet', 'createSubcircuit', 'createPort',
                        'sheetTitle', 'sheetSize', 'repairWireGeometry']
     arguments: dict = Field(default_factory=dict)
-    bind: str | None = Field(default=None, pattern=r'^[A-Za-z][A-Za-z0-9_]{0,63}$')
+    bind: str | None = Field(default=None, pattern=r'^[A-Za-z][A-Za-z0-9_]*$')
 
 
 class EditStage(Stage):
     kind: Literal['edit']
-    operations: list[EditOperation] = Field(min_length=1, max_length=100)
+    operations: list[EditOperation] = Field(min_length=1)
 
 
 class WiringStage(Stage):
@@ -89,7 +89,7 @@ class WiringStage(Stage):
     autowire_on_connection: bool | None = None
     autowire_on_move: bool | None = None
     connect_touching: bool | None = None
-    move_connection_limit: int | None = Field(default=None, ge=1, le=10000)
+    move_connection_limit: int | None = Field(default=None, ge=1)
     persist: bool = False
 
 
@@ -97,8 +97,8 @@ class SimulationSettingsStage(Stage):
     kind: Literal['simulation_settings']
     scope: Literal['interactive','analysis'] = 'interactive'
     analysis_type: str = 'TRAN'
-    changes: list[SimulationSettingChange] = Field(default_factory=list,max_length=100)
-    solver_options: dict[str,Scalar] = Field(default_factory=dict,max_length=100)
+    changes: list[SimulationSettingChange] = Field(default_factory=list)
+    solver_options: dict[str,Scalar] = Field(default_factory=dict)
     expected_revision: str | None = None
 
 
@@ -122,24 +122,21 @@ class LayoutStage(Stage):
 class AnalysisOptions(Contract):
     analysis: Literal['op', 'tran', 'ac'] = 'op'
     step: float = Field(default=1e-5, gt=0)
-    stop: float = Field(default=.01, gt=0, le=100)
+    stop: float = Field(default=.01, gt=0)
     use_initial_conditions: bool = False
     ac_sweep: Literal['lin', 'dec', 'oct'] = 'dec'
-    ac_points: int = Field(default=20, ge=1, le=100000)
+    ac_points: int = Field(default=20, ge=1)
     ac_start: float = Field(default=1, gt=0)
-    ac_stop: float = Field(default=100000, gt=0, le=1e12)
+    ac_stop: float = Field(default=100000, gt=0)
     persist: bool = False
     use_saved_settings: bool = False
 
     @model_validator(mode='after')
     def ranges(self):
         if self.persist and self.use_saved_settings:raise ValueError('Choose persist or use_saved_settings')
-        if self.step > self.stop or self.stop / self.step > 100000 * (1 + 1e-12):
-            raise ValueError('Require step <= stop and at most 100000 requested steps')
+        if self.step > self.stop:raise ValueError('Require step <= stop')
         if self.ac_start >= self.ac_stop:
             raise ValueError('Require ac_start < ac_stop')
-        estimated=self.ac_points if self.ac_sweep=='lin' else self.ac_points*math.log(self.ac_stop/self.ac_start,10 if self.ac_sweep=='dec' else 2)+1
-        if estimated>100000:raise ValueError('AC sweep exceeds 100000 requested points')
         if self.use_initial_conditions and self.analysis != 'tran':
             raise ValueError('Initial conditions apply to transient analysis')
         return self
@@ -167,20 +164,20 @@ class WorkflowMeasurement(Contract):
 class AnalysisStage(Stage):
     kind: Literal['analysis']
     options: AnalysisOptions = Field(default_factory=AnalysisOptions)
-    measurements: list[WorkflowMeasurement] = Field(default_factory=list, max_length=100)
-    criteria: list[AcceptanceCriterion] = Field(default_factory=list, max_length=100)
+    measurements: list[WorkflowMeasurement] = Field(default_factory=list)
+    criteria: list[AcceptanceCriterion] = Field(default_factory=list)
 
 
 class VerifyStage(Stage):
     kind: Literal['verify']
     raw_path: str | dict
-    measurements: list[WorkflowMeasurement] = Field(min_length=1, max_length=100)
-    criteria: list[AcceptanceCriterion] = Field(min_length=1, max_length=100)
+    measurements: list[WorkflowMeasurement] = Field(min_length=1)
+    criteria: list[AcceptanceCriterion] = Field(min_length=1)
 
 
 class DecodeDigit(Contract):
     label: str | None = None
-    segments: list[str | dict] = Field(min_length=7, max_length=7)
+    segments: list[str | dict] = Field(min_length=7,max_length=7)
     select: str | dict
 
 
@@ -198,7 +195,7 @@ class DecodeOptions(Contract):
 class DecodeStage(Stage):
     kind: Literal['decode']
     raw_path: str | dict
-    digits: list[DecodeDigit] = Field(min_length=1, max_length=16)
+    digits: list[DecodeDigit] = Field(min_length=1)
     expected: str | None = None
     options: DecodeOptions = Field(default_factory=DecodeOptions)
 
@@ -227,7 +224,7 @@ class ExportStage(Stage):
     kind: Literal['export']
     output_path: str
     overwrite: bool = False
-    dpi: int = Field(default=144, ge=36, le=600)
+    dpi: int = Field(default=144, gt=0)
     fit_content: bool = False
     show_frame: bool = False
     show_grid: bool = False
@@ -237,16 +234,16 @@ class Capture(Contract):
     output_path: str
     active_component: str | dict | None = None
     expected_digit: str | None = Field(default=None, pattern=r'^[0-9]$')
-    wait_timeout: float = Field(default=15, ge=0, le=15)
+    wait_timeout: float | None = Field(default=None, ge=0)
 
 
 class InteractiveStage(Stage):
     kind: Literal['interactive']
-    time_step: float | None = Field(default=None, ge=1e-12, le=1)
-    max_time_step: float | None = Field(default=None, ge=1e-12, le=1)
+    time_step: float | None = Field(default=None, gt=0)
+    max_time_step: float | None = Field(default=None, gt=0)
     real_time: bool | None = None
     persist: bool = True
-    captures: list[Capture] = Field(default_factory=list, max_length=16)
+    captures: list[Capture] = Field(default_factory=list)
     overwrite: bool = False
     stop_after: bool = True
 
@@ -262,10 +259,10 @@ WorkflowStage = Annotated[SessionStage | PrepareStage | SelectStage | EditStage 
 
 
 class WorkflowPlan(Contract):
-    steps: list[WorkflowStage] = Field(min_length=1, max_length=100)
+    steps: list[WorkflowStage] = Field(min_length=1)
     expected_revision: str | None = None
     # Retrying a stage is always an explicit caller decision.
-    max_runtime: float = Field(default=600, gt=0, le=7200)
+    max_runtime: float | None = Field(default=None, gt=0)
 
     @model_validator(mode='after')
     def ordering(self):
@@ -278,8 +275,6 @@ class WorkflowPlan(Contract):
             raise ValueError('A session stage must be the first and only session stage')
         if any(isinstance(s, CloseStage) for s in self.steps[:-1]):
             raise ValueError('close must be the last stage')
-        if sum(len(s.operations) for s in self.steps if isinstance(s, EditStage)) > 1000:
-            raise ValueError('A workflow supports at most 1000 edit operations')
         for stage in self.steps:
             if isinstance(stage, (AnalysisStage, VerifyStage)):
                 known = {m.id for m in stage.measurements}
@@ -292,7 +287,7 @@ class WorkflowPlan(Contract):
             elif isinstance(value,dict):
                 if set(value)=={'$ref'}:
                     path=value['$ref']
-                    if not isinstance(path,str) or not path or len(path)>512 or any(p in ('__proto__','prototype','constructor') for p in path.split('.')) or path.split('.')[0] not in available:
+                    if not isinstance(path,str) or not path or any(p in ('__proto__','prototype','constructor') for p in path.split('.')) or path.split('.')[0] not in available:
                         raise ValueError('Result reference must identify an earlier stage or operation binding: '+str(path))
                 else:
                     for v in value.values():references(v)

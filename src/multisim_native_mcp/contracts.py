@@ -51,8 +51,8 @@ class AcceptanceCriterion(BaseModel):
 
 
 def normalize_requests(values, model, field, allow_empty=False):
-    if not isinstance(values, list) or len(values) > 100 or (not values and not allow_empty):
-        raise ValueError(f'{field}: provide {"0" if allow_empty else "1"} to 100 entries')
+    if not isinstance(values, list) or (not values and not allow_empty):
+        raise ValueError(f'{field}: provide {"0" if allow_empty else "1"} or more entries')
     result = []
     for index, item in enumerate(values):
         try:

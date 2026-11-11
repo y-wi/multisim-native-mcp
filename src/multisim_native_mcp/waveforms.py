@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def parse_raw(path: Path) -> dict:
-    plots=[];budget=2000000
+    plots=[]
     with Path(path).open(encoding='utf-8') as stream:
       while True:
         headers={};variables=[];rows=[];nonempty=False
@@ -20,9 +20,8 @@ def parse_raw(path: Path) -> dict:
             if nonempty:raise ValueError('Unexpected trailing RAW content')
             break
         count=int(headers.get('No. Variables',0));points=int(headers.get('No. Points',0))
-        budget-=count*points
-        if not (0<count<=10000 and 0<points<=1000000) or budget<0:
-            raise RuntimeError('Simulator did not produce a bounded nonempty result plot: '+str(headers))
+        if count<=0 or points<=0:
+            raise RuntimeError('Simulator did not produce a nonempty result plot: '+str(headers))
         for line in stream:
             if line.strip()=='Values:':break
             if not line.strip():continue

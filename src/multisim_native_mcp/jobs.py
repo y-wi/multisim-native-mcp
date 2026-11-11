@@ -25,7 +25,7 @@ class ExperimentStore:
     def read(self,identifier):
         with self.lock:return json.loads(self.path(identifier).read_text(encoding='utf-8'))
     def list(self,limit=20):
-        if not 1<=limit<=100:raise ValueError('Limit must be 1 to 100')
+        if limit<1:raise ValueError('Limit must be positive')
         with self.lock:
             paths=sorted(self.root.glob('*.json'),key=lambda p:p.stat().st_mtime,reverse=True)[:limit]
             return [{k:v for k,v in json.loads(p.read_text(encoding='utf-8')).items() if k in ('id','status','created','finished','retry_of','error')} for p in paths]
@@ -98,4 +98,4 @@ class ExperimentManager:
 
     def shutdown(self):
         if self.active:self.cancel(self.active)
-        if self.thread:self.thread.join(timeout=60)
+        if self.thread:self.thread.join()

@@ -10,7 +10,7 @@
 
 ## Plan and references
 
-`plan.steps` contains 1–100 typed stages with unique `id` values. A workflow supports at most 1,000 edits and a configurable runtime limit (`max_runtime`, default 600 s, maximum 7,200 s). The runtime budget requests cancellation; native calls finish or interrupt at their supported boundaries.
+`plan.steps` contains nonempty typed stages with unique `id` values, without a stage or edit-count ceiling. `max_runtime` defaults to null (no deadline); set a positive duration only for a user-requested deadline. Status waits accept any finite nonnegative duration and do not stop the task.
 
 | kind | Main fields |
 | --- | --- |
@@ -33,7 +33,7 @@
 
 `options` on an analysis uses `analysis: op/tran/ac`, `step`, `stop`, `use_initial_conditions`, `ac_sweep`, `ac_points`, `ac_start` and `ac_stop`. Add `persist: true` to retain explicit run arguments in the native analysis profile, or `use_saved_settings: true` to execute stored analysis and solver options. Follow with `save` to write configured settings to a file. These two flags are exclusive.
 
-An edit operation's `bind` stores its result; every completed stage also binds its result to its `id`. Use `{"$ref":"lower.component.id"}`, `{"$ref":"split.junction_id"}` or `{"$ref":"dc.raw_path"}`. References must name earlier results. Array indices use dot notation. `{"$add":[value,9]}` and `{"$sub":[value,9]}` compute bounded two-term numeric offsets; they can contain references. No executable code is accepted.
+An edit operation's `bind` stores its result; every completed stage also binds its result to its `id`. Use `{"$ref":"lower.component.id"}`, `{"$ref":"split.junction_id"}` or `{"$ref":"dc.raw_path"}`. References must name earlier results. Array indices use dot notation. `{"$add":[value,9]}` and `{"$sub":[value,9]}` compute two-term numeric offsets; they can contain references. No executable code is accepted.
 
 A placement's `arguments.value` selects its unique primary-value slot; a string is a SPICE expression. `setParameter` can use `role: value` and an optional parameter `name` instead of `index`. Ambiguous slots return their descriptors rather than selecting a model option.
 
@@ -77,8 +77,8 @@ For an existing drawing, a `select` stage can distinguish repeated references by
 
 ```json
 {"id":"live","kind":"interactive","time_step":0.001,"max_time_step":0.001,"real_time":true,"captures":[
-  {"output_path":"C:/Circuits/digit-a.png","active_component":"DS1","expected_digit":"8","wait_timeout":15},
-  {"output_path":"C:/Circuits/digit-b.png","active_component":"DS2","expected_digit":"3","wait_timeout":15}
+  {"output_path":"C:/Circuits/digit-a.png","active_component":"DS1","expected_digit":"8"},
+  {"output_path":"C:/Circuits/digit-b.png","active_component":"DS2","expected_digit":"3"}
 ]}
 ```
 

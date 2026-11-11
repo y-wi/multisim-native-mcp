@@ -17,7 +17,7 @@ def test_new_dsh_connection_is_inserted():
     entry=entries(text)[0]
     assert entry['config']['command']==sys.executable
     assert entry['config']['args']==['-m','multisim_native_mcp']
-    assert entry['config']['toolCallTimeoutMs']==120000
+    assert 'toolCallTimeoutMs' not in entry['config']
     assert dsh_document(text,client_entry())==text
 
 
@@ -92,3 +92,11 @@ def test_cli_dsh_export_and_profile_configuration(tmp_path):
     assert len(entries(r.stdout))==1
     subprocess.run([sys.executable,'-m','multisim_native_mcp','configure','--client','dsh','--profile','web'],env={**os.environ,'DSH_HOME':str(tmp_path)},capture_output=True,check=True)
     assert len(entries((tmp_path/'profiles/web/cordis.patch.yml').read_text()))==1
+
+
+def test_remove_previous_generated_timeout_and_preserve_custom_timeout():
+    from multisim_native_mcp.dsh_config import dsh_document
+    from multisim_native_mcp.cli import client_entry
+    old='- insert:\n  - id: mcp-multisim-native\n    name: "@deepseek-ai/dsh-mcp-client"\n    config:\n      serverName: multisim_native\n      toolCallTimeoutMs: 120000\n'
+    assert 'toolCallTimeoutMs' not in dsh_document(old,client_entry())
+    assert 'toolCallTimeoutMs: 987654' in dsh_document(old.replace('120000','987654'),client_entry())

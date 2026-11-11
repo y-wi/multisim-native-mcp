@@ -57,7 +57,7 @@ function parameterInfo(args,source=null) {
   if(!attr.isNull() && /CiaParamList/.test(rtti(attr).name)) {
     const count=method('CIRCEXP.dll','?GetParamCount@CiaParamList@@','int',['pointer'])(attr);
     const exprCount=method('CIRCEXP.dll','?GetExprParamCount@CiaParamList@@','int',['pointer'])(attr);
-    for(let n=0;n<Math.min(256,Math.max(count,exprCount));n++)parameters.push({index:n,value:n<count?parameterDouble(attr,n):null,expression:n<exprCount?instanceString('CIRCEXP.dll','?GetExprParam@CiaParamList@@',attr,[n],['int']):null});
+    for(let n=0;n<Math.max(count,exprCount);n++)parameters.push({index:n,value:n<count?parameterDouble(attr,n):null,expression:n<exprCount?instanceString('CIRCEXP.dll','?GetExprParam@CiaParamList@@',attr,[n],['int']):null});
   }
   const info=[];
   const coll=method('CIRCEXP.dll','?GetAttribute@CiElement@@','pointer',['pointer','uint'])(ci,4);
@@ -348,17 +348,17 @@ function masterDb() {
   if(db.isNull())throw new Error('Master component library is unavailable');return db;
 }
 function librarySearch(args) {
-  const db=masterDb(),limit=Math.min(100,Math.max(1,args.limit||20)),term=(args.query||'').replace(/'/g,"''");
+  const db=masterDb(),limit=args.limit,term=(args.query||'').replace(/'/g,"''");
   const filters=[];
   if(term)filters.push("c.Component_Name LIKE '*"+term+"*'");
   if(args.family)filters.push("f.Family_Name='"+args.family.replace(/'/g,"''")+"'");
   if(args.group)filters.push("g.Family_Group='"+args.group.replace(/'/g,"''")+"'");
-  const sql=pathString("SELECT TOP "+limit+" c.Component_Name, c.Component_ID, c.Family_ID, f.Family_Name, g.Family_Group AS Group_Name FROM (SYS_COMPONENT AS c LEFT JOIN SYS_CONFIGURATION AS f ON c.Family_ID=f.Family_ID) LEFT JOIN SYS_CONFIGURATION_GROUPS AS g ON f.Family_Group_ID=g.Family_Group_ID"+(filters.length?' WHERE '+filters.join(' AND '):'')+" ORDER BY c.Component_Name");
+  const sql=pathString("SELECT "+(limit==null?"":"TOP "+limit+" ")+"c.Component_Name, c.Component_ID, c.Family_ID, f.Family_Name, g.Family_Group AS Group_Name FROM (SYS_COMPONENT AS c LEFT JOIN SYS_CONFIGURATION AS f ON c.Family_ID=f.Family_ID) LEFT JOIN SYS_CONFIGURATION_GROUPS AS g ON f.Family_Group_ID=g.Family_Group_ID"+(filters.length?' WHERE '+filters.join(' AND '):'')+" ORDER BY c.Component_Name");
   method('Database.dll','?OpenSQLDirectSet@CDBComponent@@','void',['pointer','pointer'])(db,sql.readPointer());
   const results=[];
   try {
     if(!method('Database.dll','?IsEOFRecord_SQLDirectSet@CDBComponent@@','uint8',['pointer'])(db))method('Database.dll','?MoveFirstRecord_SQLDirectSet@CDBComponent@@','void',['pointer'])(db);
-    while(!method('Database.dll','?IsEOFRecord_SQLDirectSet@CDBComponent@@','uint8',['pointer'])(db)&&results.length<limit) {
+    while(!method('Database.dll','?IsEOFRecord_SQLDirectSet@CDBComponent@@','uint8',['pointer'])(db)&&(limit==null||results.length<limit)) {
       const item={};
       for(const column of ['Component_Name','Family_Name','Group_Name']) {
         const key=pathString(column),out=pathString('');
@@ -421,14 +421,14 @@ function generateRecord(record,args) {
   const body=symbolBodyBounds(c),actual=anchor==='pin'?c.pins.find(p=>p.name===args.pin):anchor==='center'?{x:(body.left+body.right)/2,y:(body.top+body.bottom)/2}:{x:c.transform[4],y:c.transform[5]};
   const placement={anchor,...(anchor==='pin'?{pin:args.pin}:{}),requested:{x:args.x,y:args.y},actual:{x:actual.x,y:actual.y},origin:{x:c.transform[4],y:c.transform[5]},body_bounds:body};
   const page=pageGeometry(),offPage=body.left<0||body.top<0||body.right>page.width||body.bottom>page.height;
-  const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page; move the circuit inside or resize the sheet before saving. Image fit_content changes export framing only.'}]:[];
+  const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page. Use fit_content or a region to include it in the exported image.'}]:[];
   for(const p of metadata.parameters)if(p.role==='value'&&p.value===null&&!p.expression?.trim())warnings.push({code:'unset_value',reference:c.ref,index:p.index,name:p.name,message:'Set the primary component value before analysis.'});
   return {component:{...c,library:{family:metadata.info[0],name:metadata.info[1],symbol_family:metadata.info[2],model:metadata.info[3]},default_reference_prefix:stem},parameters:metadata.parameters,page,
     placement,warnings};
 }
 function allocateObject(className,constructor,args,types) {
   const type=method('Od101dll.dll','?GetThisClass@'+className+'@@','pointer',[],'stdcall')();
-  const size=type.add(4).readU32();if(size<4||size>65536)throw new Error('Invalid native object size');
+  const size=type.add(4).readU32();if(size<4)throw new Error('Invalid native object size');
   const getProc=ptrFunction('kernel32.dll','GetProcAddress',['pointer','pointer'],'stdcall');
   const address=getProc(Process.getModuleByName('mfc140u.dll').base,ptr(1511));
   const object=new NativeFunction(address,'pointer',['uint'],'mscdecl')(size);
@@ -547,6 +547,7 @@ function sheetTitle(args) {
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(name);return {sheets:readSheets()};
 }
 function sheetSize(args) {
+  if(['width','height'].some(k=>Math.round(args[k]/96*25.4*500000)>2147483647))throw new Error('Sheet dimensions exceed the native signed 32-bit CUTRect work-area format');
   const d=diagram(),prefs=new NativeFunction(d.graph.readPointer().add(0x5c).readPointer(),'pointer',['pointer'],'thiscall')(d.graph);
   if(prefs.isNull())throw new Error('Selected diagram has no native circuit preferences');
   const floats=Array.from({length:6},()=>Memory.alloc(4));
@@ -581,7 +582,7 @@ function wiringOptions(args={}) {
   }));
   for(const key of Object.keys(args))if(key!=='reset'&&!(key in fields))throw new Error('Unknown wiring option: '+key);
   for(const [key,value] of Object.entries(args))if(key==='move_connection_limit'){
-    if(!Number.isInteger(value)||value<1||value>10000)throw new Error('move_connection_limit must be an integer from 1 to 10000');
+    if(!Number.isInteger(value)||value<1||value>2147483647)throw new Error('move_connection_limit must be a positive signed 32-bit integer');
   }else if(typeof value!=='boolean')throw new Error(key+' must be boolean');
   if(args.reset&&Object.keys(args).length>1)throw new Error('Use reset alone to restore wiring options');
   const before=read();
@@ -653,10 +654,12 @@ function relinkNativeComponent(object){
 function routeEndsMatch(wire){return wire.points.length>=2&&['source','target'].every((end,n)=>{
   const p=wire.points[n?wire.points.length-1:0];return p.x===wire[end].x&&p.y===wire[end].y;
 });}
-function requireNativeRouteBounds(source,target){
-  const page=pageGeometry();
-  for(const p of [source,target])if(p.x<0||p.y<0||p.x>page.width||p.y>page.height)
-    throw new Error('Native autowiring endpoints must lie inside the sheet. Move the circuit inside or resize the sheet before autowiring.');
+function nativeRouteInBounds(source,target){
+  const page=pageGeometry();return [source,target].every(p=>p.x>=0&&p.y>=0&&p.x<=page.width&&p.y<=page.height);
+}
+function orthogonalRoutePoints(s,t){
+  const points=[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);
+  if(points.length===1)points.push({...points[0]});return points;
 }
 function nativeWireLabel(id){
   const wire=ptr(id),label=method('SCH_CAP.dll','?GetNodeText@CIITLinkComp@@','pointer',['pointer'])(wire),
@@ -667,7 +670,7 @@ function nativeWireLabel(id){
     user_named:!!method('SchematicCapture.dll','?IsUserNamed@CElectricalConnectionBase@@','uint8',['pointer'])(connection)};
 }
 function nativeRoutePoints(source,target,wireId){
-  requireNativeRouteBounds(source,target);
+  if(!nativeRouteInBounds(source,target))return orthogonalRoutePoints(source,target);
   if(!nativeRouteFunction){
     const module=Process.getModuleByName('SCH_CAP.dll'),entry=module.enumerateExports().find(e=>e.name.startsWith('?CreateWireBase@CBackAnnotationTarget@@'));
     if(!entry)throw new Error('Native wire routing factory is unavailable');
@@ -706,7 +709,7 @@ function nativeRoutePoints(source,target,wireId){
   let points=ptr(0);
   try{
     points=nativeRouteFunction(context,count,d.graph,d.composite,ptr(0),0,0,1,skip,0,source.x,source.y,target.x,target.y);
-    const length=count.readS32();if(points.isNull()||length<2||length>20000)throw new Error('Native router did not return a valid path');
+    const length=count.readS32();if(points.isNull()||length<2)throw new Error('Native router did not return a valid path');
     const route=Array.from({length},(_,n)=>({x:points.add(n*8).readS32(),y:points.add(n*8+4).readS32()}));
     if(!routeEndsMatch({source,target,points:route}))throw new Error('Native router returned detached endpoints');
     return route;
@@ -721,14 +724,13 @@ function nativeRoutePoints(source,target,wireId){
 function rerouteNativeWire(args){
   const before=wires().wires.find(w=>w.id===args.id);if(!before)throw new Error('Wire ID does not exist');
   const beforeLabel=nativeWireLabel(before.id);
-  requireNativeRouteBounds(before.source,before.target);
   const points=nativeRoutePoints(before.source,before.target,before.id);
   setWirePoints(ptr(before.id),points);
   const label=nativeWireLabel(before.id);
   if(beforeLabel.user_named&&JSON.stringify(beforeLabel)!==JSON.stringify(label))throw new Error('Native rerouting changed the existing net label: '+JSON.stringify({before:beforeLabel,after:label}));
   return {wire_id:before.id,points,
     length:points.slice(1).reduce((n,p,i)=>n+Math.abs(p.x-points[i].x)+Math.abs(p.y-points[i].y),0),
-    wire:wires().wires.find(w=>w.id===before.id),label,routing_engine:'multisim-native',preserved_wire_id:true};
+    wire:wires().wires.find(w=>w.id===before.id),label,routing_engine:nativeRouteInBounds(before.source,before.target)?'multisim-native':'orthogonal',preserved_wire_id:true};
 }
 function pointOnWire(point,wire){
   return wire.points.slice(1).some((b,n)=>{
@@ -787,6 +789,11 @@ function connectTouching(args={}){
 }
 function moveWithNativeWiring(args){
   const c=component(args.ref),before=matrix(ptr(c.id)),previous=wires().wires,attached=attachedWires(c,previous),options=wiringOptions();
+  const outside=c.pins.some(p=>!nativeRouteInBounds(p,{x:p.x+args.dx,y:p.y+args.dy}));
+  if(outside){
+    const moved=movePreservingGeometry(args),touching=options.connect_touching?connectTouching({refs:[c.id],drop:false}):null;
+    return {...moved,routing_engine:'preserve',touching,topology_changed:!!touching?.topology_changed};
+  }
   const reroute=options.autowire_on_move&&c.pins.reduce((n,p)=>n+p.connections,0)<options.move_connection_limit;
   if(!reroute&&!options.connect_touching)return {...movePreservingGeometry(args),routing_engine:'preserve'};
   nativeDrop(ptr(c.id),args.dx,args.dy);
@@ -805,8 +812,7 @@ function moveWithNativeWiring(args){
 function connectNative(source,target,points) {
   const s=connectorGeometry(source),t=connectorGeometry(target);
   if(!points){
-    if(wiringOptions().autowire_on_connection)requireNativeRouteBounds(s,t);
-    else {points=[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);if(points.length===1)points.push({...points[0]});}
+    if(!wiringOptions().autowire_on_connection||!nativeRouteInBounds(s,t))points=orthogonalRoutePoints(s,t);
   }
   let vector=ptr(0);
   if(points&&points.length){const values=Memory.alloc(points.length*8);points.forEach((p,n)=>{values.add(n*8).writeS32(p.x);values.add(n*8+4).writeS32(p.y);});vector=Memory.alloc(12);vector.writePointer(values);vector.add(4).writePointer(values.add(points.length*8));vector.add(8).writePointer(values.add(points.length*8));}
@@ -879,7 +885,7 @@ function exportImage(args) {
     const handle=bitmap.add(4).readPointer(),description=Memory.alloc(24);
     if(!method('gdi32.dll','GetObjectW','int',['pointer','int','pointer'],'stdcall')(handle,24,description))throw new Error('Native bitmap dimensions unavailable');
     const width=description.add(4).readS32(),height=description.add(8).readS32(),stride=Math.ceil(width*3/4)*4;
-    if(width<=0||height<=0||width*height>32000000)throw new Error('Native bitmap exceeds 32 million pixels');
+    if(width<=0||height<=0||stride*height+54>0xffffffff)throw new Error('Native BMP size exceeds its unsigned 32-bit file-size field');
     const size=stride*height,header=Memory.alloc(40),buffer=Memory.alloc(size+54);header.writeByteArray(new Uint8Array(40));
     header.writeU32(40);header.add(4).writeS32(width);header.add(8).writeS32(height);header.add(12).writeU16(1);header.add(14).writeU16(24);header.add(20).writeU32(size);
     const dc=method('user32.dll','GetDC','pointer',['pointer'],'stdcall')(ptr(0));
@@ -995,7 +1001,7 @@ function interactiveOptions(args={}) {
     if(!interactiveOptionsHook){
       const address=Process.getModuleByName('SpiceifsSch.dll').getExportByName('?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@QAE?AW4ESimMsgErrorCode@2@PB_W@Z');
       interactiveOptionsHook=Interceptor.attach(address,{onEnter(parameters){
-        if(!interactiveStartup||Date.now()>interactiveStartup.expires)return;
+        if(!interactiveStartup)return;
         if(Process.getCurrentThreadId()!==uiThread||!this.context.ecx.equals(interactiveStartup.session)||activeNativeOperation==='simulate')return;
         try {
           if(!project().proj.equals(interactiveStartup.project))return;
@@ -1018,9 +1024,9 @@ function interactiveStatus(args={}) {
     if(name.readUtf16String()==='msctls_statusbar32'){
       const sendMessage=method('user32.dll','SendMessageW','int',['pointer','uint','uint','pointer'],'stdcall');
       const count=sendMessage(window,0x406,0,ptr(0));
-      for(let n=0;n<Math.min(count,32);n++){
+      for(let n=0;n<count;n++){
         const length=sendMessage(window,0x40c,n,ptr(0))&65535;
-        if(!length||length>4096)continue;
+        if(!length)continue;
         const text=Memory.alloc((length+1)*2);sendMessage(window,0x40d,n,text);panes.push(text.readUtf16String());
       }
     }
@@ -1038,7 +1044,7 @@ function interactiveCommand(args) {
   if(id===65535)throw new Error('Native interactive command is unavailable: '+names[args.action]);
   if(args.action==='start'){
     activateSheet();interactiveLastStart=null;
-    if(Object.keys(interactiveConfiguration).length)interactiveStartup={session:simSession(),project:project().proj,expires:Date.now()+15000};
+    if(Object.keys(interactiveConfiguration).length)interactiveStartup={session:simSession(),project:project().proj};
   } else if(args.action==='stop')interactiveStartup=null;
   const queued=method('user32.dll','PostMessageW','int',['pointer','uint','uint','int'],'stdcall')(hwnd,0x111,id,0);
   if(!queued)throw new Error('Native interactive command could not be queued');
@@ -1225,7 +1231,7 @@ function sequenceValue(value,bindings){
   if(Array.isArray(value))return value.map(v=>sequenceValue(v,bindings));
   if(!value||typeof value!=='object')return value;
   if(Object.keys(value).length===1&&'$ref' in value){
-    const path=value.$ref;if(typeof path!=='string'||!path||path.length>512)throw new Error('Invalid result reference');
+    const path=value.$ref;if(typeof path!=='string'||!path)throw new Error('Invalid result reference');
     let result=bindings;
     for(const key of path.split('.')){
       if(['__proto__','prototype','constructor'].includes(key)||!Object.prototype.hasOwnProperty.call(result||{},key))throw new Error('Unresolved result reference: '+path);
@@ -1251,17 +1257,17 @@ function validateSequenceOperation(op,a){
   if(!(op in required))throw new Error('Operation requires an individual native transaction: '+op);
   for(const k of required[op])if(!(k in a))throw new Error(op+' requires '+k);
   for(const k of ['ref','id','name','text','family','group','manufacturer','title','new_ref','expression','pin'])
-    if(k in a&&(typeof a[k]!=='string'||a[k].length>4096||a[k].includes('\0')))throw new Error('Invalid '+k);
-  for(const k of ['x','y','dx','dy','index','width','height'])if(k in a&&(!Number.isInteger(a[k])||Math.abs(a[k])>100000))throw new Error('Invalid '+k);
+    if(k in a&&(typeof a[k]!=='string'||a[k].includes('\0')))throw new Error('Invalid '+k);
+  for(const k of ['x','y','dx','dy','index','width','height'])if(k in a&&(!Number.isInteger(a[k])||a[k]<-2147483648||a[k]>2147483647))throw new Error('Invalid '+k);
   if(op==='place'&&!['origin','center','pin'].includes(a.anchor||'origin'))throw new Error('Invalid placement anchor');
-  if(op==='transform'&&(!(('angle' in a)||('axis' in a))||('angle' in a&&(!Number.isFinite(a.angle)||a.angle%90))||('axis' in a&&!['horizontal','vertical'].includes(a.axis))))throw new Error('Invalid transform');
+  if(op==='transform'&&(!(('angle' in a)||('axis' in a))||('angle' in a&&(!Number.isFinite(a.angle)))||('axis' in a&&!['horizontal','vertical'].includes(a.axis))))throw new Error('Invalid transform');
   if(op==='remove'&&!a.ref&&!a.id)throw new Error('remove requires ref or id');
-  if(op==='setParameter'&&((('value' in a)===('expression' in a))||a.index<0||a.index>=256||('value' in a&&!Number.isFinite(a.value))))throw new Error('Invalid parameter value or index');
-  if(op==='sheetSize'&&['width','height'].some(k=>a[k]<96||a[k]>8192))throw new Error('Sheet dimensions must be 96 to 8192');
-  if('points' in a&&(!Array.isArray(a.points)||a.points.length<2||a.points.length>1000||a.points.some(p=>!p||['x','y'].some(k=>!Number.isInteger(p[k])||Math.abs(p[k])>100000))))throw new Error('Invalid wire route');
-  if('parameters' in a){if(!Array.isArray(a.parameters)||a.parameters.length>256)throw new Error('Invalid parameters');a.parameters.forEach(p=>validateSequenceOperation('setParameter',{ref:'placement',...p}));}
+  if(op==='setParameter'&&((('value' in a)===('expression' in a))||a.index<0||a.index>2147483647||('value' in a&&!Number.isFinite(a.value))))throw new Error('Invalid parameter value or index');
+  if(op==='sheetSize'&&['width','height'].some(k=>a[k]<=0||a[k]>2147483647))throw new Error('Sheet dimensions must be positive signed 32-bit integers');
+  if('points' in a&&(!Array.isArray(a.points)||a.points.length<2||a.points.some(p=>!p||['x','y'].some(k=>!Number.isInteger(p[k])||p[k]<-2147483648||p[k]>2147483647))))throw new Error('Invalid wire route');
+  if('parameters' in a){if(!Array.isArray(a.parameters))throw new Error('Invalid parameters');a.parameters.forEach(p=>validateSequenceOperation('setParameter',{ref:'placement',...p}));}
   for(const k of ['source','target'])if(k in a){const e=a[k];if(!e||!(typeof e.junction_id==='string'||(typeof e.ref==='string'&&typeof e.pin==='string')))throw new Error('Invalid '+k+' endpoint');}
-  if('refs' in a&&(!Array.isArray(a.refs)||a.refs.length<1||a.refs.length>100||a.refs.some(r=>typeof r!=='string'||!r)))throw new Error('Invalid component refs');
+  if('refs' in a&&(!Array.isArray(a.refs)||a.refs.length<1||a.refs.some(r=>typeof r!=='string'||!r)))throw new Error('Invalid component refs');
 }
 function editSequence(args){
   if(!Array.isArray(args.operations)||args.operations.length<1||args.operations.length>8)throw new Error('Native edit slices support 1 to 8 operations');

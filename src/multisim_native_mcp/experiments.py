@@ -1,4 +1,4 @@
-"""Bounded native parameter experiments with checkpoint restoration."""
+"""Native parameter experiments with checkpoint restoration."""
 import itertools
 from .measurements import finite,measure
 from .verification import verify
@@ -8,17 +8,16 @@ from .contracts import normalize_measurements,normalize_criteria
 
 
 def validate_spec(parameters,analysis,measurements,criteria,objective):
-    if not isinstance(parameters,list) or not 1<=len(parameters)<=4:raise ValueError('Provide 1 to 4 sweep parameters')
+    if not isinstance(parameters,list) or not parameters:raise ValueError('Provide nonempty sweep parameters')
     seen=set();total=1
     for p in parameters:
         key=(p['ref'],p['index'])
         if key in seen:raise ValueError('Duplicate sweep parameter')
         seen.add(key)
-        if not isinstance(p['index'],int) or not 0<=p['index']<256:raise ValueError('Invalid parameter index')
-        if not isinstance(p['values'],list) or not 1<=len(p['values'])<=100:raise ValueError('Provide 1 to 100 values')
+        if not isinstance(p['index'],int) or not 0<=p['index']<=2147483647:raise ValueError('Invalid parameter index')
+        if not isinstance(p['values'],list) or not p['values']:raise ValueError('Provide nonempty sweep values')
         for value in p['values']:finite(value)
         total*=len(p['values'])
-    if total>100:raise ValueError('Sweep exceeds 100 trials')
     allowed={'analysis','step','stop','use_initial_conditions','ac_sweep','ac_points','ac_start','ac_stop'}
     if not isinstance(analysis,dict) or set(analysis)-allowed:raise ValueError('Invalid analysis options')
     measurements=normalize_measurements(measurements)

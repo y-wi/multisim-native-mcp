@@ -65,16 +65,14 @@ def test_off_page_routing_and_fitted_export(tmp_path):
         for operation in ['wire','connectEndpoint']:
             link=h.edit(operation,{'source':{'ref':'R1','pin':'1' if operation=='wire' else '2'},'target':{'ref':'R2','pin':'1' if operation=='wire' else '2'}})
             for end,index in [('source',0),('target',-1)]:assert link['points'][index]=={k:link[end][k] for k in ('x','y')}
-        with pytest.raises(ValueError,match='outside the page'):h.export_image(str(tmp_path/'blank.png'))
-        assert not (tmp_path/'blank.png').exists()
+        assert h.export_image(str(tmp_path/'blank.png'))['off_page_components']
         before=h.call('circuitState')
         image=h.export_image(str(tmp_path/'fitted.png'),dpi=192,fit_content=True)
         assert image['width']<1200 and image['height']<1000
         assert h.call('circuitState')==before
         with Image.open(image['path']) as rendered:assert any(b>r+40 for r,g,b in rendered.convert('RGB').get_flattened_data())
         output=tmp_path/'cropped-image-original-sheet.ms14'
-        with pytest.raises(ValueError,match='outside the saved page'):h.save_copy(str(output))
-        h.save_copy(str(output),allow_off_page=True);h.close();h.open_copy(str(output))
+        h.save_copy(str(output));h.close();h.open_copy(str(output))
         reopened=h.call('circuitState')
         assert reopened['page']['width']==960 and reopened['page']['height']==720
         assert reopened['content_bounds']['right']>reopened['page']['width']

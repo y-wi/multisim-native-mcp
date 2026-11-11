@@ -41,7 +41,7 @@ Without `save_to_source`, changes remain in the editable native document: call `
 - Defaults retain the existing behavior: explicit arguments apply only to that run.
 - `persist:true` writes explicit transient/AC arguments into the native `analysis` profile and runs it. Add `save_to_source:true` to back up and save the source before the run; saved configuration is independent of whether a subsequent analysis succeeds.
 - `use_saved_settings:true` runs stored OP/AC/TRAN settings and solver options through Multisim's native command compiler. This is exclusive with `persist:true`.
-- Transient execution is bounded to 100 s and 100000 requested steps. AC execution validates frequency range and point count. Configuration can still store values for ordinary native use beyond these execution limits.
+- Transient and AC execution validate finite values, positive steps/frequencies and their ordering, without MCP duration or sample-count quotas.
 
 ## Other persistence gaps
 
@@ -76,4 +76,6 @@ New circuits are real `.ms14` files in the task workspace from the start. The ca
 
 Editable copies are only created by explicitly choosing `native_open_copy` / `session.isolated_copy:true`, with an explicit output filename (or beside the source when omitted). Internal recovery backups, checkpoints, verification files and logs are distinct from the actual editable file. Comparison-mode normal close saves its comparison file, while explicitly calling native_save_source updates the original. Recovery/resume retains the actual source identity and external-change hash rather than making a checkpoint the deliverable.
 
-Interactive configuration and interactive workflow stages default to document persistence. One-off numeric analysis arguments remain per-run unless persist:true is requested. Native simulations no longer have the edit watchdog's fixed 25-second process-kill limit; native pause/stop controls remain available. Other native calls have a 90-second owned-process watchdog. Geometry, electrical validation and external-source conflict checks remain because they detect actual correctness/data-loss problems.
+Interactive configuration and interactive workflow stages default to document persistence. One-off numeric analysis arguments remain per-run unless persist:true is requested. Native calls have no fixed process-kill watchdog; native pause/stop controls remain available. Geometry, electrical validation and external-source conflict checks remain because they detect actual correctness/data-loss problems.
+
+The server has no task watchdog or default workflow runtime deadline. Client transport timeouts and native Multisim/data-format limits are independent of the server. Use background analysis/workflow status APIs when the client needs short requests. Pagination defaults and internal edit slices do not cap total work.
