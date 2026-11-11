@@ -73,6 +73,12 @@
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 参数类型和默认值以 MCP `tools/list` 返回的 schema 为准。
 
+### Shared power references / 同名电源符号
+
+VCC and VEE symbols can share a reference. Use the selected symbol's current `id` as `component_ref`, batch `ref` or a wiring endpoint's `ref`. Movement, rotation and contact processing retain that symbol's identity and update its own physical pin attachments. Wire endpoints include `component_id`. `native_list_wires` accepts an ID to isolate one symbol, or a shared reference to list all matching symbols. Ambiguous edit targets return candidate IDs without changing the circuit.
+
+VCC、VEE 等电源符号可以重名。将所选符号当前的 `id` 传给 `component_ref`、批处理 `ref` 或连线端点的 `ref`。移动、旋转与接触处理按对象身份更新该符号实际连接的导线。导线端点返回 `component_id`；`native_list_wires` 传入 ID 只列出该符号的导线，传入共享名称则列出所有同名符号的导线。编辑目标重名时返回候选 ID，保留电路状态。
+
 ### `native_repair_wire_geometry`
 
 Synchronize symbol and junction graphics with grid-snapped electrical connectors, then align wire endpoints on the selected sheet. This is one undoable edit. Returns aligned components/junctions, changed wire IDs, endpoint verification and fresh state. Electrical attachments are preserved.

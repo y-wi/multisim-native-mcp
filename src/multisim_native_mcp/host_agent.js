@@ -137,9 +137,11 @@ function components() {
 function component(ref) {
   const all=components().components,exact=all.filter(c=>c.ref===ref||c.id===ref);
   const matches=exact.length?exact:all.filter(c=>c.local_ref===ref);
-  if(matches.length!==1)throw new Error('Expected one component named '+ref);
+  if(matches.length!==1)throw new Error(matches.length?'Ambiguous component reference '+ref+'; use a component ID from the current state: '+matches.map(c=>c.id).join(', '):'Expected one component named '+ref);
   return matches[0];
 }
+function ownsEndpoint(c,endpoint) {return c.pins.some(p=>p.id===endpoint.id);}
+function attachedWires(c,links) {return links.filter(w=>ownsEndpoint(c,w.source)||ownsEndpoint(c,w.target));}
 function matrix(object) {
   const graphic=ptrFunction('Od101dll.dll','?GetGraphic@CODComponent@@QAEPAVCODGraphic@@XZ',['pointer'])(object);
   const transform=ptrFunction('Od101dll.dll','?GetTransformer@CODGraphic@@QAEPAVCODTransformer@@XZ',['pointer'])(graphic);
@@ -153,14 +155,14 @@ function move(args) {
 }
 function movePreservingGeometry(args) {
   const c=component(args.ref),object=ptr(c.id),before=matrix(object);
-  const attached=wires().wires.filter(w=>w.source.ref===c.ref||w.target.ref===c.ref);
+  const attached=attachedWires(c,wires().wires);
   native('Od101dll.dll','?MoveComponentBy@CODDiagram@@UAEXPAVCODComponent@@VCSize@@@Z','void',['pointer','pointer','int','int'])(diagram().graph,object,args.dx,args.dy);
   const after=matrix(object);
-  const pins=component(args.ref).pins;
+  const pins=component(c.id).pins;
   for(const w of attached) {
     let points=w.points;
     for(const end of ['source','target']) {
-      if(w[end].ref!==c.ref)continue;
+      if(!ownsEndpoint(c,w[end]))continue;
       const pin=pins.find(p=>p.id===w[end].id);
       if(!pin || points.length<2)throw new Error('Cannot update a wire endpoint');
       if(end==='source')points=points.slice().reverse();
@@ -171,7 +173,7 @@ function movePreservingGeometry(args) {
     }
     setWirePoints(ptr(w.id),points);
   }
-  return {ref:c.ref,before,after,pins,updated_wires:attached.length};
+  return {id:c.id,ref:c.ref,before,after,pins,updated_wires:attached.length};
 }
 function setWirePoints(object,points) {
   ensureWirePen(object);
@@ -226,7 +228,7 @@ function wire(args) {
 }
 function wires() {
   const d=diagram(),pins=new Map();
-  for(const c of components().components)for(const p of c.pins)pins.set(p.id,{ref:c.ref,pin:p.name});
+  for(const c of components().components)for(const p of c.pins)pins.set(p.id,{component_id:c.id,ref:c.ref,pin:p.name});
   const result=[];
   for(const object of listChildren(d.composite)) {
     if(!/CIITLinkComp/.test(rtti(object).name))continue;

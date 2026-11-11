@@ -52,6 +52,8 @@ For other batch operations, consult the installed implementation or use the corr
 
 ## Electrical wires and branches
 
+Shared power symbols may have identical `ref` and `local_ref`. Use their current component IDs in `component_ref` or batch/endpoint `ref`. Physical wire ownership is determined by connector IDs; shared net names do not identify a specific placed symbol. Wire endpoints include `component_id`. Read fresh IDs after netlist refresh, undo, redo or rollback.
+
 Standalone `native_connect_pins` accepts `source_ref, source_pin, target_ref, target_pin`. Endpoint tools accept `{"ref":"R1","pin":"2"}` or `{"junction_id":"<current junction ID>"}`.
 
 - Read actual wire routes with `native_list_wires` or the current state. Wire vertices and pin positions share sheet units.

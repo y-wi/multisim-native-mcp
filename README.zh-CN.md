@@ -124,6 +124,8 @@ Copy-Item -Recurse .\skills\multisim-native "$env:USERPROFILE\.codex\skills\"
 
 编辑已有窗口时，使用 `native_attach` 并提供进程 ID。结束附着会话会释放连接，保留该 Multisim 窗口。
 
+VCC、VEE 等电源符号可以重名。移动、旋转和连线时使用所选符号当前的元件 `id`。导线端点返回 `component_id`，`native_list_wires` 支持按该 ID 筛选。编辑目标重名时，工具返回候选 ID。
+
 ### 添加导线分支
 
 1. 使用 `native_list_wires` 读取导线路径。

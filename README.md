@@ -124,6 +124,8 @@ If `CODEX_HOME` is set, use its `skills` directory instead. Restart Codex to dis
 
 Use `native_attach` with a process ID to work in an existing Multisim window. Closing an attached session releases the connection and leaves that window open.
 
+Power symbols such as VCC and VEE can share a reference. Use the selected symbol's current component `id` for movement, rotation and wiring. Wire endpoints expose `component_id`; `native_list_wires` can filter by that ID. Ambiguous edit targets return candidate IDs.
+
 ### Connect a wire branch
 
 1. Read the route with `native_list_wires`.

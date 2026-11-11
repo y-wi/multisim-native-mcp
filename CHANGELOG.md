@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.9
+
+- Move and rotate shared-reference power symbols by object ID, updating only their own physical pin attachments.
+- Preserve object identity during native rerouting and touching-pin processing.
+- Limit symbol deletion to its own attached wires when power references are shared.
+- Include component IDs in wire endpoints and support ID-based wire filtering.
+- Return candidate IDs for ambiguous edit targets without changing circuit state.
+- Verify persisted label transforms instead of cached text extents when reopening saved circuits.
+
 ## 0.3.8
 
 - Add native automatic wiring on connection, rerouting on component movement and touching-pin connections.

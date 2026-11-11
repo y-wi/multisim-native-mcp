@@ -107,7 +107,7 @@ class EditorService(NativeHost):
                       'page':{k:s['page'][k] for k in ('width','height')},
                       'components':order([{'ref':c['ref'],'transform':c['transform'],
                           'pins':order([{'name':p['name'],'x':p['x'],'y':p['y']} for p in c['pins']]),
-                          'labels':[{k:l[k] for k in ('kind','text','center')} for l in c.get('labels',[])],
+                          'labels':[{k:l[k] for k in ('kind','text', 'transform' if 'transform' in l else 'center')} for l in c.get('labels',[])],
                           'parameters':c.get('parameters',[])} for c in s['components']]),
                       'wires':order([{'source':endpoint(w['source']),'target':endpoint(w['target']),'points':w['points']} for w in s['wires']]),
                       'content_bounds':s['content_bounds']} for s in sheets])
@@ -190,7 +190,8 @@ class EditorService(NativeHost):
                 matches=[c for c in components if target in (c['ref'],c['id'])] or [c for c in components if target==c.get('local_ref')]
                 if len(matches)!=1:
                     state=self.call('circuitState',{'include_parameters':True})
-                    raise NativeEditError(f'Component {target!r} must identify one component on the selected sheet; found {len(matches)}. Available references: {[c["ref"] for c in components]}',
+                    candidates=[{'id':c['id'],'ref':c['ref']} for c in (matches or components)]
+                    raise NativeEditError(f'Component {target!r} must identify one component on the selected sheet; found {len(matches)}. Use a current component ID for duplicate references. Candidates: {candidates}',
                         {'rolled_back':False,'handles_invalidated':False,'completed_operations':0,'state':state})
             before=self.checkpoint()
             step_before=before

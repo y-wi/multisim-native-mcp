@@ -73,6 +73,25 @@ def test_failed_readback_restores_existing_output(tmp_path):
     assert output.read_bytes()==b'previous' and not list(tmp_path.glob('verify-*.ms14'))
 
 
+def test_saved_label_positions_compare_native_transforms_not_text_cache(tmp_path):
+    s=scene()
+    s['components']=[{'ref':'VIN','transform':[1,0,0,1,9,234], 'pins':[],
+                      'labels':[{'kind':'reference','text':'V1','center':{'x':103,'y':200},
+                                 'transform':[1,0,0,1,81,-42]}]}]
+    host,calls=saving_host(tmp_path,[s]);original=host.call
+    def call(op,args=None):
+        result=original(op,args)
+        if op=='verifySavedCopy':result['states'][0]['components'][0]['labels'][0]['center']['x']=100
+        return result
+    host.call=call
+    assert host.save_copy(str(tmp_path/'cached-label.ms14'))['verification']['passed']
+    before=EditorService.saved_signature([s]);changed=copy.deepcopy(s)
+    changed['components'][0]['labels'][0]['transform'][4]+=3
+    assert EditorService.saved_signature([changed])!=before
+    changed=copy.deepcopy(s);changed['components'][0]['labels'][0]['text']='OTHER'
+    assert EditorService.saved_signature([changed])!=before
+
+
 def test_unicode_analysis_transport_copies_results_and_cleans_on_failure(tmp_path,monkeypatch):
     root=tmp_path/'transport';root.mkdir();monkeypatch.setenv('MULTISIM_NATIVE_IO_DIR',str(root))
     output=tmp_path/'中文';output.mkdir();host=EditorService()

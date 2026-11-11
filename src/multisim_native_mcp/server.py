@@ -36,6 +36,7 @@ def checked(function):
 server = MCPServer('multisim-native', version=__version__,
                    instructions='Edit native Multisim objects in isolated copies or explicitly attached existing windows. '
                    'Read exact pin names before wiring; save results before closing. '
+                   'For repeated power references, select a current component ID from the circuit state. '
                    'Undo, redo and netlist refresh can invalidate memory IDs; reread objects afterward. '
                    'Read sheet bounds from the initial state or native_get_circuit_state before placing components. '
                    'Coordinates use top-left sheet units, 96 per inch, and may snap to grid. '
@@ -90,10 +91,10 @@ def native_move_component_label(component_ref: str,x: int,y: int,kind: Literal['
 @server.tool()
 @checked
 def native_list_wires(component_ref: str | None = None) -> dict:
-    """Read actual native wire endpoints and routed vertices, optionally filtering by component reference."""
+    """Read actual native wire endpoints and routed vertices. Filter by reference for all matching symbols, or by current component ID for one symbol. Endpoints include component_id."""
     result = host.call('wires')
     if component_ref is not None:
-        result['wires'] = [wire for wire in result['wires'] if any(wire[end].get('ref') == component_ref for end in ('source', 'target'))]
+        result['wires'] = [wire for wire in result['wires'] if any(component_ref in (wire[end].get('ref'),wire[end].get('component_id')) for end in ('source', 'target'))]
     return result
 
 
@@ -133,7 +134,7 @@ def native_connect_touching(component_refs: list[str] | None = None) -> dict:
 @server.tool()
 @checked
 def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
-    """Move a native component by relative sheet units; preserve its native pin attachments. Grid snapping applies."""
+    """Move a native component by relative sheet units; preserve its native pin attachments. Use a current component ID when power symbols share a reference. Grid snapping applies."""
     if max(abs(dx), abs(dy)) > 10000:
         raise ValueError('Movement must be within 10000 native units per axis')
     return host.edit('move', {'ref': component_ref, 'dx': dx, 'dy': dy})

@@ -142,7 +142,7 @@ function removeObject(args) {
   if(args.ref)id=component(args.ref).id;
   if(!enumerate().objects.some(c=>c.id===id))throw new Error('Object does not exist on the selected sheet');
   const symbol=components().components.find(c=>c.id===id);
-  if(symbol)for(const wire of wires().wires.filter(w=>w.source.ref===symbol.ref||w.target.ref===symbol.ref))removeObject({id:wire.id});
+  if(symbol)for(const wire of attachedWires(symbol,wires().wires))removeObject({id:wire.id});
   const list=Memory.alloc(256);
   method('Od101dll.dll','??0CODCompList@@QAE@PAVCODComponent@@@Z','pointer',['pointer','pointer'])(list,ptr(id));
   try {
@@ -150,11 +150,11 @@ function removeObject(args) {
   } finally {method('Od101dll.dll','??1CODCompList@@UAE@XZ','void',['pointer'])(list);}
   return {deleted:!enumerate().objects.some(c=>c.id===id),id};
 }
-function updateAttachedGeometry(ref,attached) {
-  const pins=component(ref).pins;
+function updateAttachedGeometry(id,attached) {
+  const c=component(id),pins=c.pins;
   for(const wire of attached) {
     let points=wire.points;
-    for(const end of ['source','target'])if(wire[end].ref===ref) {
+    for(const end of ['source','target'])if(ownsEndpoint(c,wire[end])) {
       const pin=pins.find(p=>p.id===wire[end].id);if(!pin)throw new Error('Transformed pin lost its attachment');
       if(end==='source')points=points.slice().reverse();
       const old=points.at(-1),previous=points.at(-2),next={x:pin.x,y:pin.y};
@@ -167,7 +167,7 @@ function updateAttachedGeometry(ref,attached) {
   return pins;
 }
 function transformComponent(args) {
-  const c=component(args.ref),object=ptr(c.id),before=matrix(object),attached=wires().wires.filter(w=>w.source.ref===c.ref||w.target.ref===c.ref);
+  const c=component(args.ref),object=ptr(c.id),before=matrix(object),attached=attachedWires(c,wires().wires);
   const x=c.pins.length?c.pins.reduce((a,p)=>a+p.x,0)/c.pins.length:before[4],y=c.pins.length?c.pins.reduce((a,p)=>a+p.y,0)/c.pins.length:before[5];
   const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(object);
   if(args.angle!==undefined)method('Od101dll.dll','?Rotate@CODGraphic@@','void',['pointer','float','float','float'])(graphic,args.angle,x,y);
@@ -176,7 +176,7 @@ function transformComponent(args) {
   refreshComponentValue(c.id,false);
   straightenComponentLabels(c.id);
   arrangeComponentLabels(c.id);
-  return {ref:c.ref,before,after:matrix(object),pins:updateAttachedGeometry(c.ref,attached),labels:componentLabels({ref:c.id}).labels};
+  return {id:c.id,ref:c.ref,before,after:matrix(object),pins:updateAttachedGeometry(c.id,attached),labels:componentLabels({ref:c.id}).labels};
 }
 function copyTransform(source,target,x,y) {
   const graphic=object=>method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(object);
@@ -377,8 +377,8 @@ function placeComponent(args) {
     if(!found)throw new Error('The native library could not resolve this component name/family/group');
     const result=generateRecord(record,args);
     if(wiringOptions().connect_touching){
-      result.touching=connectTouching({refs:[result.component.ref]});
-      result.component={...result.component,...component(result.component.ref)};
+      result.touching=connectTouching({refs:[result.component.id]});
+      result.component={...result.component,...component(result.component.id)};
     }
     return result;
   } finally {for(const v of values)native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(v);method('compedit.dll','??1CDataRecordComponent@@UAE@XZ','void',['pointer'])(record);}
@@ -728,8 +728,7 @@ function nativeJunctionOnWire(point,wire){
   return junction;
 }
 function connectTouching(args={}){
-  const refs=args.refs||components().components.map(c=>c.ref),before=wires().wires,connections=[];
-  refs.forEach(ref=>component(ref));
+  const refs=(args.refs||components().components.map(c=>c.id)).map(ref=>component(ref).id),before=wires().wires,connections=[];
   return temporaryWiring({connect_touching:true},()=>{
     for(const ref of refs){
       for(const pin of component(ref).pins)if(!pin.connections){
@@ -749,7 +748,7 @@ function connectTouching(args={}){
         const hit=hits[0],endpoint=[hit.source,hit.target].find(p=>p.x===pin.x&&p.y===pin.y);
         const target=endpoint?ptr(endpoint.id):nativeJunctionOnWire(pin,hit);
         connectNative(ptr(pin.id),target,[{x:pin.x,y:pin.y},{x:pin.x,y:pin.y}]);
-        connections.push({ref,pin:name,kind:endpoint?'connector':'wire_branch'});
+        connections.push({ref:component(ref).ref,component_id:ref,pin:name,kind:endpoint?'connector':'wire_branch'});
       }
     }
     const after=wires().wires,ids=new Set(after.map(w=>w.id)),old=new Set(before.map(w=>w.id));
@@ -759,20 +758,20 @@ function connectTouching(args={}){
   });
 }
 function moveWithNativeWiring(args){
-  const c=component(args.ref),before=matrix(ptr(c.id)),previous=wires().wires,attached=previous.filter(w=>w.source.ref===c.ref||w.target.ref===c.ref),options=wiringOptions();
+  const c=component(args.ref),before=matrix(ptr(c.id)),previous=wires().wires,attached=attachedWires(c,previous),options=wiringOptions();
   const reroute=options.autowire_on_move&&c.pins.reduce((n,p)=>n+p.connections,0)<options.move_connection_limit;
   if(!reroute&&!options.connect_touching)return {...movePreservingGeometry(args),routing_engine:'preserve'};
   nativeDrop(ptr(c.id),args.dx,args.dy);
-  if(reroute){relinkNativeComponent(ptr(c.id));for(const w of wires().wires)if(w.source.ref===c.ref||w.target.ref===c.ref)ensureWirePen(ptr(w.id));}
-  else updateAttachedGeometry(c.ref,attached);
-  const touching=options.connect_touching?connectTouching({refs:[c.ref],drop:false}):null;
+  if(reroute){relinkNativeComponent(ptr(c.id));for(const w of attachedWires(component(c.id),wires().wires))ensureWirePen(ptr(w.id));}
+  else updateAttachedGeometry(c.id,attached);
+  const touching=options.connect_touching?connectTouching({refs:[c.id],drop:false}):null;
   const after=wires().wires;
-  if(after.some(w=>(w.source.ref===c.ref||w.target.ref===c.ref)&&!routeEndsMatch(w)))throw new Error('Native movement left a wire endpoint detached');
+  if(attachedWires(component(c.id),after).some(w=>!routeEndsMatch(w)))throw new Error('Native movement left a wire endpoint detached');
   const signature=links=>JSON.stringify(links.map(w=>[w.id,w.source.id,w.target.id]).sort());
   const changed=signature(previous)!==signature(after);
   if(touching){touching.topology_changed=changed;touching.added_wire_ids=after.filter(w=>!previous.some(p=>p.id===w.id)).map(w=>w.id);
     touching.removed_wire_ids=previous.filter(w=>!after.some(p=>p.id===w.id)).map(w=>w.id);touching.handles_invalidated=!!touching.removed_wire_ids.length;}
-  return {ref:c.ref,before,after:matrix(ptr(c.id)),pins:component(c.ref).pins,updated_wires:attached.length,
+  return {id:c.id,ref:c.ref,before,after:matrix(ptr(c.id)),pins:component(c.id).pins,updated_wires:attached.length,
     routing_engine:reroute?'multisim-native':'preserve',touching,topology_changed:changed};
 }
 function connectNative(source,target,points) {
@@ -1136,7 +1135,7 @@ function componentLabels(args,source=null) {
     const corners=[[r.readS32(),r.add(4).readS32()],[r.add(8).readS32(),r.add(12).readS32()]].map(([x,y])=>({x,y}));
     const bounds={left:Math.min(...corners.map(p=>p.x)),top:Math.min(...corners.map(p=>p.y)),right:Math.max(...corners.map(p=>p.x)),bottom:Math.max(...corners.map(p=>p.y))};
     const text=instanceString('Od101dll.dll','?GetText@CODTextComp@@',child,[treeInstance()],['pointer']);
-    labels.push({id:child.toString(),kind:/CompValue/.test(type)?'value':'reference',text,bounds,center:{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}});
+    labels.push({id:child.toString(),kind:/CompValue/.test(type)?'value':'reference',text,transform:matrix(child),bounds,center:{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}});
   }
   return {reference:c.ref,labels};
 }
