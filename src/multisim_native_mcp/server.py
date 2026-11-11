@@ -107,6 +107,31 @@ def native_connect_pins(source_ref: str, source_pin: str, target_ref: str, targe
 
 @server.tool()
 @checked
+def native_configure_wiring(autowire_on_connection: bool | None = None, autowire_on_move: bool | None = None,
+                            connect_touching: bool | None = None, move_connection_limit: int | None = None,
+                            reset: bool = False) -> dict:
+    """Read or configure native Multisim autowiring for connections, moves and touching pins. A move reroutes only below move_connection_limit; other moves preserve attachments and route shape. Changes last for this session and restore on close. Use reset alone to restore original settings. Stop simulation before changes."""
+    options={key:value for key,value in locals().items() if value is not None and key!='reset'}
+    if reset:
+        if options: raise ValueError('Use reset alone to restore wiring options')
+        options={'reset':True}
+    if move_connection_limit is not None and (isinstance(move_connection_limit,bool) or not 1<=move_connection_limit<=10000):
+        raise ValueError('move_connection_limit must be an integer from 1 to 10000')
+    with host.lock:
+        if options and host.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before changing wiring options')
+        return host.call('wiringOptions',options)
+
+
+@server.tool()
+@checked
+def native_connect_touching(component_refs: list[str] | None = None) -> dict:
+    """Connect touching pins, existing junctions and wire interiors through native drop/connection factories as one undoable edit. Omit component_refs for the selected sheet. Interior contacts create native branch junctions; ambiguous crossings of different nets return an error. Returns fresh state and changed wire IDs."""
+    result=host.batch([{'operation':'connectTouching','arguments':{} if component_refs is None else {'refs':component_refs}}],include_state=True)
+    return {**result['results'][0],'state':result['state'],'undo_depth':result['undo_depth']}
+
+
+@server.tool()
+@checked
 def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
     """Move a native component by relative sheet units; preserve its native pin attachments. Grid snapping applies."""
     if max(abs(dx), abs(dy)) > 10000:
@@ -323,7 +348,7 @@ def native_list_projects() -> dict:
 @server.tool()
 @checked
 def native_edit_batch(operations: list[dict], include_state: bool = True, atomic: bool = True) -> dict:
-    """Apply 1-100 edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (width/height 96-8192 sheet units)."""
+    """Apply 1-100 edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, autoWire (id), connectTouching (optional refs), setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (width/height 96-8192 sheet units)."""
     return host.batch(operations,include_state,atomic)
 
 
@@ -536,12 +561,14 @@ def native_plan_wire_route(wire_id: str, clearance: int = 9) -> dict:
 
 @server.tool()
 @checked
-def native_auto_route_wire(wire_id: str, clearance: int = 9) -> dict:
-    """Plan and apply one obstacle-aware native wire route as an undoable edit. Keep the same electrical source and target connectors."""
+def native_auto_route_wire(wire_id: str, clearance: int = 9, engine: Literal['native','obstacle'] = 'native') -> dict:
+    """Reroute an existing wire using Multisim's native router by default, preserving its ID and electrical endpoints. engine=obstacle uses the MCP orthogonal planner with clearance in sheet units. One undoable edit. Batch equivalent: autoWire with arguments.id for native routing."""
+    if engine not in ('native','obstacle'):raise ValueError('Choose routing engine native or obstacle')
+    if engine=='native':return host.edit('autoWire',{'id':wire_id})
     with host.lock:
         plan=native_plan_wire_route(wire_id,clearance)
         result=host.edit('route',{'id':wire_id,'points':plan['points']})
-        return {**plan,'wire':result}
+        return {**plan,'wire':result,'routing_engine':'obstacle'}
 
 
 @server.tool()

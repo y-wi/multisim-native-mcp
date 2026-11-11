@@ -66,7 +66,9 @@
 | `native_export_experiment_report` | experiment_id, output_directory, language, title, signals, overwrite |
 | `native_check_layout` | — |
 | `native_plan_wire_route` | wire_id, clearance |
-| `native_auto_route_wire` | wire_id, clearance |
+| `native_auto_route_wire` | wire_id, clearance, engine |
+| `native_configure_wiring` | autowire_on_connection, autowire_on_move, connect_touching, move_connection_limit, reset |
+| `native_connect_touching` | component_refs |
 
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 参数类型和默认值以 MCP `tools/list` 返回的 schema 为准。

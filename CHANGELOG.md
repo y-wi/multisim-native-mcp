@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.8
+
+- Add native automatic wiring on connection, rerouting on component movement and touching-pin connections.
+- Configure session wiring settings and movement connection limits; restore original settings on close.
+- Create native branch junctions for pins touching wire interiors and reject ambiguous contacts at crossings.
+- Reroute existing wires with Multisim's router while preserving wire IDs, labels and electrical endpoints.
+- Support native routing and touching connections in undoable edit batches.
+- Reject off-page native routing endpoints before creating clamped wires.
+
 ## 0.3.7
 
 - Write native image and netlist files through Unicode Windows paths, and stage SPICE file transfers automatically.

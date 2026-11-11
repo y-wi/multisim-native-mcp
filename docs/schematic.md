@@ -1,5 +1,32 @@
 # Schematics / 原理图
 
+## Native autowiring / 原生自动布线
+
+`native_configure_wiring` reads or changes Multisim's native wiring settings. Connections use the native router, moves reroute attached wires below the configured connection limit, and touching pins connect during placement or movement. Moves outside that limit preserve existing attachments and route shape. Settings apply to the current session and restore on close or `reset: true`.
+
+`native_configure_wiring` 读取或修改 Multisim 原生连线设置。连线调用原生布线器；连接数量低于设定阈值时，移动元件会重新布线；放置或移动时可自动连接接触的引脚。超过阈值的移动保留已有连接和走线形状。设置作用于当前会话，关闭或调用 `reset: true` 后恢复。
+
+```json
+{
+  "autowire_on_connection": true,
+  "autowire_on_move": true,
+  "connect_touching": true,
+  "move_connection_limit": 32
+}
+```
+
+Use `native_connect_touching(component_refs)` to connect contacts already present on the selected sheet. A pin contacting a wire interior creates a native branch junction. Contacts at crossings of different nets return an error so the intended connection can be specified explicitly. Splitting a wire can replace its ID; consume the returned fresh state.
+
+通过 `native_connect_touching(component_refs)` 可连接当前图纸中已经接触的引脚。引脚接触导线中段时创建原生分支节点；遇到不同网络的交叉点会返回错误，需明确指定目标连接。拆分导线可能替换其 ID，后续使用返回的新状态。
+
+`native_auto_route_wire(wire_id)` reroutes one existing wire with Multisim's router while retaining its ID, labels and electrical endpoints. Batch construction supports `autoWire` with `arguments: {"id": "..."}` and `connectTouching` with `arguments: {"refs": ["R1", "R2"]}`. `native_plan_wire_route` previews the separate MCP obstacle planner; select `engine: "obstacle"` in `native_auto_route_wire` to apply that route with a custom `clearance`.
+
+`native_auto_route_wire(wire_id)` 使用 Multisim 原生布线器重新规划已有导线，保留导线 ID、标签与电气端点。批处理支持 `autoWire`（参数 `{"id": "..."}`）和 `connectTouching`（参数 `{"refs": ["R1", "R2"]}`）。`native_plan_wire_route` 预览独立的 MCP 避障算法；在自动布线工具中选择 `engine: "obstacle"` 可应用该路径并自定义 `clearance`。
+
+Native automatic routing requires endpoints inside the sheet. Resize the sheet or move the circuit inside before routing. Explicit wire points remain available for planned paths.
+
+原生自动布线要求端点位于图纸内。布线前应调整实际图纸尺寸或将电路移入图纸；已规划的路径仍可通过显式导线顶点设置。
+
 ## Coordinates / 坐标
 
 `native_create_circuit` and `native_open_copy` return an initial `state`. Use `native_get_circuit_state` to read sheets, components, named pins, wire vertices, labels and content bounds together.

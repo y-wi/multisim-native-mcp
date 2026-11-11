@@ -23,9 +23,10 @@ from .paths import DATA_DIR
 
 MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
              'rename','addText','labelWire','splitWire','connectEndpoint','reconnect',
-             'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize','repairWireGeometry'}
+             'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize','repairWireGeometry',
+             'autoWire','connectTouching'}
 TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect','replace','splitWire',
-                    'createSheet','createSubcircuit','createPort','rename'}
+                    'createSheet','createSubcircuit','createPort','rename','connectTouching'}
 
 
 class NativeEditError(RuntimeError):
@@ -205,7 +206,7 @@ class EditorService(NativeHost):
                         self.restore(self.checkpoint())
                     else:args=op.get('arguments',{})
                     results.append(self.call(op['operation'],args))
-                    self.topology_dirty=self.topology_dirty or op['operation'] in TOPOLOGY_MUTATIONS
+                    self.topology_dirty=self.topology_dirty or op['operation'] in TOPOLOGY_MUTATIONS or (isinstance(results[-1],dict) and bool(results[-1].get('topology_changed')))
                 self.call('markModified')
                 if any(op['operation']=='createSubcircuit' for op in operations):
                     self.restore(self.checkpoint())
@@ -232,6 +233,10 @@ class EditorService(NativeHost):
 
     @staticmethod
     def validate(op,args):
+        if op=='connectTouching' and 'refs' in args:
+            refs=args['refs']
+            if not isinstance(refs,list) or not 1<=len(refs)<=100 or any(not isinstance(ref,str) or not ref for ref in refs):
+                raise ValueError('Provide 1 to 100 nonempty component references')
         if op=='place':
             if args.get('anchor','origin') not in ('origin','center','pin'):raise ValueError('Placement anchor must be origin, center or pin')
             if args.get('anchor')=='pin' and not isinstance(args.get('pin'),str):raise ValueError('Placement with anchor=pin requires the exact pin name')

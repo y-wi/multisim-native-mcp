@@ -4,14 +4,14 @@
 
 Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
 
-- 65 MCP tools for components, wires, sheets, subcircuits, models and analysis.
+- 67 MCP tools for components, wires, sheets, subcircuits, models and analysis.
 - Interactive simulation with configurable time steps, real-time pacing and actual display captures.
 - Editable `.ms14` projects with named-pin connections and routed wire branches.
 - Batch edits, checkpoints, undo, redo and native save/reopen.
 - DC operating point, transient and AC analysis with RAW and CSV output.
 - Time-weighted measurements, numeric acceptance checks and scanned display decoding.
 - Parameter sweeps, candidate ranking, persistent background experiments and bilingual reports.
-- Native layout checks and obstacle-aware orthogonal wire routing.
+- Native automatic wiring, rerouting on move, touching-pin connections and layout checks.
 - Schematic export to PNG and BMP.
 - Windows installer with automatic Python setup and Codex or DeepSeek Harness configuration.
 
@@ -162,7 +162,7 @@ Example request:
 | Components | Library search, place, copy, delete, replace, rename |
 | Parameters | Read/write parameters and embedded SPICE models |
 | Geometry | Move, rotate, mirror, route wires, add text |
-| Connections | Named pins, junctions, branches, endpoint replacement, net labels |
+| Connections | Named pins, native autowiring, touching contacts, junctions, branches, endpoint replacement, net labels |
 | Hierarchy | Sheets, subcircuits, hierarchical ports |
 | History | Batch editing, checkpoints, undo, redo |
 | Analysis | DC operating point, transient, AC lin/dec/oct, mixed RAW plots |
@@ -171,7 +171,7 @@ Example request:
 | Verification | Limits, target tolerances, multiplexed seven-segment decoding |
 | Experiments | Parameter sweeps, constraints, ranking, background jobs, cancel and retry |
 | Reports | Chinese/English HTML, Markdown, CSV, native circuit PNG and waveform SVG |
-| Layout | Endpoint checks, component bounds, orthogonal obstacle routing |
+| Layout | Endpoint checks, native wire rerouting, component bounds, orthogonal obstacle planning |
 | Export | Native `.ms14`, PNG, BMP, RAW, CSV |
 
 [Schematic guide](docs/schematic.md) · [Experiment guide](docs/experiments.md) · [Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)

@@ -71,6 +71,6 @@ Query records with `native_experiment_status` and `native_list_experiments`. Can
 
 报告工具将记录导出到已有绝对目录。选择中文或英文，可指定最多八个波形。产物包括独立 HTML、Markdown、测量 CSV、原生电路 PNG 和波形 SVG。
 
-`native_check_layout` checks real native connector coordinates, drawing pens, orthogonal segments and component graphic bounds. `native_plan_wire_route` returns an obstacle-aware route without editing; `native_auto_route_wire` applies it as an undoable native edit. `clearance` is in native sheet units. Read wire IDs again after operations that invalidate handles.
+`native_check_layout` checks real native connector coordinates, drawing pens, orthogonal segments and component graphic bounds. `native_plan_wire_route` previews the MCP obstacle-aware planner without editing. `native_auto_route_wire` uses Multisim's native router by default and preserves the wire ID and electrical endpoints. Choose `engine: "obstacle"` to apply the planner with `clearance` in sheet units. Read wire IDs again after operations that invalidate handles.
 
-布局检查使用真实原生端口坐标、导线画笔、线段和器件图形边界。路径规划工具返回避障路线，自动布线工具将路线应用为可撤销的原生编辑；`clearance` 使用图纸原生坐标单位。句柄失效后重新读取导线 ID。
+布局检查使用真实原生端口坐标、导线画笔、线段和器件图形边界。路径规划工具预览 MCP 的避障算法；自动布线工具默认调用 Multisim 原生布线器，保留导线 ID 和电气端点。使用 `engine: "obstacle"` 可应用 MCP 规划结果，`clearance` 使用图纸单位。句柄失效后重新读取导线 ID。

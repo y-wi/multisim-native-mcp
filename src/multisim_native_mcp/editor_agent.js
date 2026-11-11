@@ -1,6 +1,9 @@
 // Additional native editor operations. Kept in the same Frida realm as host_agent.js.
 const prefixFunctions=new Map();
 let doubleGetter=null;
+let originalWiringOptions=null;
+let nodeInfoOffset=null;
+let nativeRouteFunction=null;
 function parameterDouble(attr,index) {
   if(!doubleGetter) {
     const target=Process.getModuleByName('CIRCEXP.dll').getExportByName('?GetParam@CiaParamList@@QBENH@Z').toUInt32();
@@ -372,7 +375,12 @@ function placeComponent(args) {
   try {
     const found=method('SCH_CAP.dll','?PrepDataRecordForNewComponent@CComponentHandler@@','uint8',['pointer','pointer','pointer','pointer','pointer','int','int','pointer','uint8'])(handler,...values,0,-1,record,0);
     if(!found)throw new Error('The native library could not resolve this component name/family/group');
-    return generateRecord(record,args);
+    const result=generateRecord(record,args);
+    if(wiringOptions().connect_touching){
+      result.touching=connectTouching({refs:[result.component.ref]});
+      result.component={...result.component,...component(result.component.ref)};
+    }
+    return result;
   } finally {for(const v of values)native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(v);method('compedit.dll','??1CDataRecordComponent@@UAE@XZ','void',['pointer'])(record);}
 }
 function generateRecord(record,args) {
@@ -431,6 +439,7 @@ function labelWire(args) {
   method('DrwEngine.dll','??0CTreeInstanceProxy@@QAE@PAVCTreeInstance@@@Z','pointer',['pointer','pointer'])(proxy,treeInstance());
   method('Library.dll','??0CPoolString@@QAE@PB_W@Z','pointer',['pointer','pointer'])(pool,Memory.allocUtf16String(args.name));
   method('SchematicCapture.dll','?SetUserNamed@CElectricalConnectionBase@@','pointer',['pointer','pointer','pointer','pointer','uint8'])(connection,container,proxy,pool,1);
+  if(!node.isNull())method('CIRCEXP.dll','?SetLocalName@CiElement@@','int',['pointer','pointer'])(node,Memory.allocUtf16String(args.name));
   method('SchematicCapture.dll','?SetNetNameHidden@CElectricalConnectionBase@@','void',['pointer','uint8'])(connection,0);
   method('Od101dll.dll','?SetShowWhenUsingNetSettings@CODLinkComp@@','void',['pointer','uint8'])(ptr(w.id),1);
   method('DrwEngine.dll','??1CTreeInstanceProxy@@','void',['pointer'])(proxy);method('Library.dll','??1CPoolString@@','void',['pointer'])(pool);
@@ -537,16 +546,250 @@ function sheetSize(args) {
   method('DrwEngine.dll','?SetWorkArea@CDrwSubSheet@@','void',['pointer','pointer'])(d.sheet,rect);
   return {width:args.width,height:args.height,before_page_info:before,page_info:floats.map(p=>p.readFloat())};
 }
+function wiringSettings() {
+  return method('SCH_CAP.dll','?GetSCH_CAPDocTypeSettings@@','pointer',[],'mscdecl')();
+}
+function wiringOptions(args={}) {
+  const settings=wiringSettings();
+  if(settings.isNull())throw new Error('Native schematic wiring settings are unavailable');
+  const fields={autowire_on_connection:['IsAutowireOnConnection','SetAutowireOnConnection','uint8'],
+    autowire_on_move:['IsAutowireOnMove','SetAutowireOnMove','uint8'],
+    connect_touching:['IsAutowirePinTouching','SetAutowirePinTouching','uint8'],
+    move_connection_limit:['GetAutowirePinConnections','SetAutowirePinConnections','int']};
+  const read=()=>Object.fromEntries(Object.entries(fields).map(([key,[get,,type]])=>{
+    const value=method('SCH_CAP.dll','?'+get+'@CSCH_CAPDocTypeSettings@@',type,['pointer'])(settings);
+    return [key,type==='uint8'?!!value:value];
+  }));
+  for(const key of Object.keys(args))if(key!=='reset'&&!(key in fields))throw new Error('Unknown wiring option: '+key);
+  for(const [key,value] of Object.entries(args))if(key==='move_connection_limit'){
+    if(!Number.isInteger(value)||value<1||value>10000)throw new Error('move_connection_limit must be an integer from 1 to 10000');
+  }else if(typeof value!=='boolean')throw new Error(key+' must be boolean');
+  if(args.reset&&Object.keys(args).length>1)throw new Error('Use reset alone to restore wiring options');
+  const before=read();
+  const changes=args.reset?(originalWiringOptions||{}):args;
+  if(Object.keys(changes).some(k=>k in fields)&&!originalWiringOptions)originalWiringOptions=before;
+  for(const [key,value] of Object.entries(changes))if(key in fields){
+    const [,set,type]=fields[key];method('SCH_CAP.dll','?'+set+'@CSCH_CAPDocTypeSettings@@','void',['pointer',type])(settings,type==='uint8'?Number(value):value);
+  }
+  if(args.reset)originalWiringOptions=null;
+  return {...read(),backend:'multisim-native',scope:'session',restored_on_close:true};
+}
+function closeWiringOptions(){if(originalWiringOptions)wiringOptions({reset:true});}
+function temporaryWiring(options,callback){
+  const before=wiringOptions();
+  try{wiringOptions(options);return callback();}
+  finally{wiringOptions(Object.fromEntries(Object.keys(options).map(k=>[k,before[k]])));}
+}
+function nativeDrop(object,dx=0,dy=0){
+  const d=diagram(),tree=treeInstance();
+  const getProc=ptrFunction('kernel32.dll','GetProcAddress',['pointer','pointer'],'stdcall');
+  const allocate=new NativeFunction(getProc(Process.getModuleByName('mfc140u.dll').base,ptr(1511)),'pointer',['uint'],'mscdecl');
+  const list=allocate(28);if(list.isNull())throw new Error('Native component list allocation failed');
+  method('Od101dll.dll','??0CODCompList@@QAE@PAVCODComponent@@@Z','pointer',['pointer','pointer'])(list,object);
+  // DropComponentsOnDiagram transfers the heap action/list to the native undo engine.
+  const action=allocateObject('CODMoveAct','??0CODMoveAct@@QAE@PAVCTreeInstance@@PAVCODCompList@@MM@Z',
+    [tree,list,dx,dy],['pointer','pointer','float','float']);
+  method('Od101dll.dll','?SetActDiagram@CODAction@@','void',['pointer','pointer'])(action,d.graph);
+  const result=method('SCH_CAP.dll','?DropComponentsOnDiagram@@','int',
+    ['pointer','pointer','pointer',...Array(7).fill('uint8'),'pointer','uint8'],'mscdecl')
+    (d.graph,tree,action,1,1,1,0,0,0,0,ptr(0),0);
+  if(result<0)throw new Error('Native component drop failed: '+result);
+  return result;
+}
+function nativeNodeInfo(){
+  const graph=diagram().graph;
+  if(nodeInfoOffset!==null){const p=graph.add(nodeInfoOffset).readPointer();if(!p.isNull()&&p.add(4).readPointer().equals(graph))return p;}
+  // Resolve the member used by the exported rotation handler's call to Relink.
+  // Validate its back-reference instead of fixing a build-specific member offset.
+  const module=Process.getModuleByName('SCH_CAP.dll'),exports=module.enumerateExports();
+  const start=exports.find(e=>e.name.startsWith('?Advanced_Rotate_Flip@CIITDiagram@@'))?.address;
+  const target=exports.find(e=>e.name.startsWith('?Relink@CNKNodeInfo@@'))?.address;
+  if(!start||!target)throw new Error('Native movement relinking interface is unavailable');
+  const bytes=new Uint8Array(start.readByteArray(0x4000)),view=new DataView(bytes.buffer);
+  for(let n=0;n<bytes.length-5;n++)if(bytes[n]===0xe8&&start.add(n+5+view.getInt32(n+1,true)).equals(target)){
+    for(let k=n-6;k>=Math.max(0,n-80);k--)if(bytes[k]===0x8b&&(bytes[k+1]&0xf8)===0x88){
+      const offset=view.getUint32(k+2,true);if(offset<16||offset>4096)continue;
+      try{const p=graph.add(offset).readPointer();if(!p.isNull()&&p.add(4).readPointer().equals(graph)){nodeInfoOffset=offset;return p;}}catch(_){}
+    }
+  }
+  throw new Error('Native movement relinking context could not be resolved');
+}
+function relinkNativeComponent(object){
+  const d=diagram(),tree=treeInstance(),info=nativeNodeInfo(),list=Memory.alloc(64);
+  method('Od101dll.dll','??0CODCompList@@QAE@PAVCODComponent@@@Z','pointer',['pointer','pointer'])(list,object);
+  try{
+    method('SCH_CAP.dll','?UpdateForNodeInfo@CNKNodeInfo@@','void',['pointer','pointer','uint8'])(info,tree,0);
+    method('SCH_CAP.dll','?Relink@CNKNodeInfo@@','void',['pointer','pointer','pointer','pointer','uint8','uint8','uint8'])(info,tree,d.graph,list,0,0,0);
+  }finally{method('Od101dll.dll','??1CODCompList@@UAE@XZ','void',['pointer'])(list);}
+}
+function routeEndsMatch(wire){return wire.points.length>=2&&['source','target'].every((end,n)=>{
+  const p=wire.points[n?wire.points.length-1:0];return p.x===wire[end].x&&p.y===wire[end].y;
+});}
+function requireNativeRouteBounds(source,target){
+  const page=pageGeometry();
+  for(const p of [source,target])if(p.x<0||p.y<0||p.x>page.width||p.y>page.height)
+    throw new Error('Native autowiring endpoints must lie inside the sheet. Move the circuit inside or resize the sheet before autowiring.');
+}
+function nativeWireLabel(id){
+  const wire=ptr(id),label=method('SCH_CAP.dll','?GetNodeText@CIITLinkComp@@','pointer',['pointer'])(wire),
+    connection=basePointer(wire,'.?AVCElectricalConnectionBase@@');
+  return {id:label.isNull()?null:label.toString(),
+    text:label.isNull()?null:instanceString('Od101dll.dll','?GetText@CODTextComp@@',label,[treeInstance()],['pointer']),
+    hidden:!!method('SchematicCapture.dll','?IsNetNameHidden@CElectricalConnectionBase@@','uint8',['pointer'])(connection),
+    user_named:!!method('SchematicCapture.dll','?IsUserNamed@CElectricalConnectionBase@@','uint8',['pointer'])(connection)};
+}
+function nativeRoutePoints(source,target,wireId){
+  requireNativeRouteBounds(source,target);
+  if(!nativeRouteFunction){
+    const module=Process.getModuleByName('SCH_CAP.dll'),entry=module.enumerateExports().find(e=>e.name.startsWith('?CreateWireBase@CBackAnnotationTarget@@'));
+    if(!entry)throw new Error('Native wire routing factory is unavailable');
+    let p=entry.address,targetAddress=null,previous=[];
+    for(let n=0;n<1200;n++){
+      const instruction=Instruction.parse(p),next=Instruction.parse(instruction.next);
+      if(instruction.mnemonic==='call'&&/^0x/.test(instruction.opStr)&&next.mnemonic==='add'&&next.opStr==='esp, 0x30'&&
+         previous.length>=2&&previous.at(-1).mnemonic==='lea'&&/^ecx,/.test(previous.at(-1).opStr)&&
+         previous.at(-2).mnemonic==='lea'&&/^edx,/.test(previous.at(-2).opStr)){
+        targetAddress=ptr(instruction.opStr);break;
+      }
+      if(instruction.mnemonic==='ret')break;
+      previous.push(instruction);p=instruction.next;
+    }
+    if(!targetAddress||Process.findModuleByAddress(targetAddress)?.name.toLowerCase()!=='sch_cap.dll')
+      throw new Error('Native wire routing entry could not be resolved');
+    // The internal router uses ECX/EDX arguments with caller stack cleanup.
+    // Adapt it to stdcall without rewriting any native application code.
+    const bytes=[0x55,0x8b,0xec];
+    for(let n=13;n>=2;n--)bytes.push(0xff,0x75,8+n*4);
+    bytes.push(0x8b,0x4d,8,0x8b,0x55,12,0xb8,...[0,8,16,24].map(n=>(targetAddress.toUInt32()>>>n)&255),
+      0xff,0xd0,0x83,0xc4,0x30,0x8b,0xe5,0x5d,0xc2,0x38,0);
+    const code=Memory.alloc(Process.pageSize);code.writeByteArray(bytes);Memory.protect(code,Process.pageSize,'r-x');keep.push(code);
+    nativeRouteFunction=new NativeFunction(code,'pointer',
+      ['pointer','pointer','pointer','pointer','pointer','int','int','int','pointer',...Array(5).fill('int')],'stdcall');
+  }
+  const d=diagram(),handler=Memory.alloc(16),context=Memory.alloc(24),count=Memory.alloc(4);
+  // Borrow the same drawing context and tree handler layout as CreateWireBase.
+  handler.writePointer(treeInstance());handler.add(4).writeU32(255);handler.add(8).writePointer(d.graph);handler.add(12).writePointer(ptr(0));
+  context.writeByteArray(new Uint8Array(24));
+  context.add(8).writePointer(method('Od101dll.dll','?GetDC@CODInstContext@@','pointer',['pointer'])
+    (Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A')));
+  context.add(12).writePointer(handler);count.writeS32(0);
+  const skip=Memory.alloc(64);
+  method('Od101dll.dll','??0CODCompList@@QAE@PAVCODComponent@@@Z','pointer',['pointer','pointer'])(skip,wireId?ptr(wireId):ptr(0));
+  let points=ptr(0);
+  try{
+    points=nativeRouteFunction(context,count,d.graph,d.composite,ptr(0),0,0,1,skip,0,source.x,source.y,target.x,target.y);
+    const length=count.readS32();if(points.isNull()||length<2||length>20000)throw new Error('Native router did not return a valid path');
+    const route=Array.from({length},(_,n)=>({x:points.add(n*8).readS32(),y:points.add(n*8+4).readS32()}));
+    if(!routeEndsMatch({source,target,points:route}))throw new Error('Native router returned detached endpoints');
+    return route;
+  }finally{
+    method('Od101dll.dll','??1CODCompList@@UAE@XZ','void',['pointer'])(skip);
+    if(!points.isNull()){
+      const getProc=ptrFunction('kernel32.dll','GetProcAddress',['pointer','pointer'],'stdcall');
+      new NativeFunction(getProc(Process.getModuleByName('mfc140u.dll').base,ptr(1513)),'void',['pointer'],'mscdecl')(points);
+    }
+  }
+}
+function rerouteNativeWire(args){
+  const before=wires().wires.find(w=>w.id===args.id);if(!before)throw new Error('Wire ID does not exist');
+  const beforeLabel=nativeWireLabel(before.id);
+  requireNativeRouteBounds(before.source,before.target);
+  const points=nativeRoutePoints(before.source,before.target,before.id);
+  setWirePoints(ptr(before.id),points);
+  const label=nativeWireLabel(before.id);
+  if(beforeLabel.user_named&&JSON.stringify(beforeLabel)!==JSON.stringify(label))throw new Error('Native rerouting changed the existing net label: '+JSON.stringify({before:beforeLabel,after:label}));
+  return {wire_id:before.id,points,
+    length:points.slice(1).reduce((n,p,i)=>n+Math.abs(p.x-points[i].x)+Math.abs(p.y-points[i].y),0),
+    wire:wires().wires.find(w=>w.id===before.id),label,routing_engine:'multisim-native',preserved_wire_id:true};
+}
+function pointOnWire(point,wire){
+  return wire.points.slice(1).some((b,n)=>{
+    const a=wire.points[n];return (b.x-a.x)*(point.y-a.y)===(b.y-a.y)*(point.x-a.x)&&
+      point.x>=Math.min(a.x,b.x)&&point.x<=Math.max(a.x,b.x)&&point.y>=Math.min(a.y,b.y)&&point.y<=Math.max(a.y,b.y);
+  });
+}
+function wireNetworks(links){
+  const parent=new Map();
+  const root=id=>{if(!parent.has(id))parent.set(id,id);let r=id;while(parent.get(r)!==r)r=parent.get(r);return r;};
+  for(const w of links)parent.set(root(w.source.id),root(w.target.id));return root;
+}
+function nativeJunctionOnWire(point,wire){
+  const d=diagram(),tree=treeInstance(),pen=wirePen(ptr(wire.id)),junction=allocateObject('CODPinComp','??0CODPinComp@@QAE@VCPoint@@PAVCPen@@@Z',
+    [point.x,point.y,pen],['int','int','pointer']);
+  method('Od101dll.dll','?AddComponent@CODDiagram@@','void',['pointer','pointer','int','int','pointer','uint8'])(d.graph,junction,0,0,tree,0);
+  const g=connectorGeometry(junction);
+  method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(d.graph,junction,
+    Math.round(point.x-g.graphic_position.x),Math.round(point.y-g.graphic_position.y));
+  if(connectorGeometry(junction).x!==point.x||connectorGeometry(junction).y!==point.y)throw new Error('Touching junction snapped away from the pin');
+  nativeDrop(junction);
+  const links=wires().wires.filter(w=>w.source.id===junction.toString()||w.target.id===junction.toString());
+  if(links.length<2)throw new Error('Native touching junction did not split the target wire');
+  links.forEach(w=>ensureWirePen(ptr(w.id),pen));
+  return junction;
+}
+function connectTouching(args={}){
+  const refs=args.refs||components().components.map(c=>c.ref),before=wires().wires,connections=[];
+  refs.forEach(ref=>component(ref));
+  return temporaryWiring({connect_touching:true},()=>{
+    for(const ref of refs){
+      for(const pin of component(ref).pins)if(!pin.connections){
+        const links=wires().wires,network=wireNetworks(links);
+        if(new Set(links.filter(w=>pointOnWire(pin,w)).map(w=>network(w.source.id))).size>1)
+          throw new Error('Pin '+ref+'.'+pin.name+' touches a crossing of different nets; connect its intended wire explicitly');
+      }
+      if(args.drop!==false)nativeDrop(ptr(component(ref).id));
+      for(const name of component(ref).pins.map(p=>p.name)){
+        const pin=component(ref).pins.find(p=>p.name===name);
+        if(pin.connections)continue;
+        const links=wires().wires,network=wireNetworks(links);
+        const hits=links.filter(w=>pointOnWire(pin,w));
+        if(new Set(hits.map(w=>network(w.source.id))).size>1)
+          throw new Error('Pin '+ref+'.'+name+' touches a crossing of different nets; connect its intended wire explicitly');
+        if(!hits.length)continue;
+        const hit=hits[0],endpoint=[hit.source,hit.target].find(p=>p.x===pin.x&&p.y===pin.y);
+        const target=endpoint?ptr(endpoint.id):nativeJunctionOnWire(pin,hit);
+        connectNative(ptr(pin.id),target,[{x:pin.x,y:pin.y},{x:pin.x,y:pin.y}]);
+        connections.push({ref,pin:name,kind:endpoint?'connector':'wire_branch'});
+      }
+    }
+    const after=wires().wires,ids=new Set(after.map(w=>w.id)),old=new Set(before.map(w=>w.id));
+    const added=after.filter(w=>!old.has(w.id)).map(w=>w.id),removed=before.filter(w=>!ids.has(w.id)).map(w=>w.id);
+    return {backend:'multisim-native',connections,added_wire_ids:added,removed_wire_ids:removed,
+      topology_changed:!!(added.length||removed.length),handles_invalidated:!!removed.length};
+  });
+}
+function moveWithNativeWiring(args){
+  const c=component(args.ref),before=matrix(ptr(c.id)),previous=wires().wires,attached=previous.filter(w=>w.source.ref===c.ref||w.target.ref===c.ref),options=wiringOptions();
+  const reroute=options.autowire_on_move&&c.pins.reduce((n,p)=>n+p.connections,0)<options.move_connection_limit;
+  if(!reroute&&!options.connect_touching)return {...movePreservingGeometry(args),routing_engine:'preserve'};
+  nativeDrop(ptr(c.id),args.dx,args.dy);
+  if(reroute){relinkNativeComponent(ptr(c.id));for(const w of wires().wires)if(w.source.ref===c.ref||w.target.ref===c.ref)ensureWirePen(ptr(w.id));}
+  else updateAttachedGeometry(c.ref,attached);
+  const touching=options.connect_touching?connectTouching({refs:[c.ref],drop:false}):null;
+  const after=wires().wires;
+  if(after.some(w=>(w.source.ref===c.ref||w.target.ref===c.ref)&&!routeEndsMatch(w)))throw new Error('Native movement left a wire endpoint detached');
+  const signature=links=>JSON.stringify(links.map(w=>[w.id,w.source.id,w.target.id]).sort());
+  const changed=signature(previous)!==signature(after);
+  if(touching){touching.topology_changed=changed;touching.added_wire_ids=after.filter(w=>!previous.some(p=>p.id===w.id)).map(w=>w.id);
+    touching.removed_wire_ids=previous.filter(w=>!after.some(p=>p.id===w.id)).map(w=>w.id);touching.handles_invalidated=!!touching.removed_wire_ids.length;}
+  return {ref:c.ref,before,after:matrix(ptr(c.id)),pins:component(c.ref).pins,updated_wires:attached.length,
+    routing_engine:reroute?'multisim-native':'preserve',touching,topology_changed:changed};
+}
 function connectNative(source,target,points) {
+  const s=connectorGeometry(source),t=connectorGeometry(target);
+  if(!points){
+    if(wiringOptions().autowire_on_connection)requireNativeRouteBounds(s,t);
+    else {points=[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);if(points.length===1)points.push({...points[0]});}
+  }
   let vector=ptr(0);
   if(points&&points.length){const values=Memory.alloc(points.length*8);points.forEach((p,n)=>{values.add(n*8).writeS32(p.x);values.add(n*8+4).writeS32(p.y);});vector=Memory.alloc(12);vector.writePointer(values);vector.add(4).writePointer(values.add(points.length*8));vector.add(8).writePointer(values.add(points.length*8));}
   const object=method('SCH_CAP.dll','?CreateWireBase@CBackAnnotationTarget@@','pointer',['pointer','pointer','pointer','pointer'],'mscdecl')(treeInstance(),source,target,vector);
   if(object.isNull())throw new Error('Native wire creation failed');
   ensureWirePen(object);
+  if(points)setWirePoints(object,points);
   const link=wires().wires.find(w=>w.id===object.toString());
   if(!points&&link.points.length>1&&(link.points[0].x!==link.source.x||link.points[0].y!==link.source.y||link.points.at(-1).x!==link.target.x||link.points.at(-1).y!==link.target.y)) {
-    const a=link.source,b=link.target;
-    setWirePoints(object,[{x:a.x,y:a.y},{x:a.x,y:b.y},{x:b.x,y:b.y}].filter((p,i,all)=>!i||p.x!==all[i-1].x||p.y!==all[i-1].y));
+    throw new Error('Native router returned endpoints outside the electrical connectors; no fallback route was applied');
   }
   return object;
 }
@@ -947,6 +1190,7 @@ function arrangeComponentLabels(ref) {
   labels.forEach((l,i)=>{moveComponentLabel({ref:c.id,kind:l.kind,x:body.right+9+(l.bounds.right-l.bounds.left)/2,y:y+heights[i]/2});y+=heights[i]+4;});
 }
 const editorHandlers={
+  wiringOptions,connectTouching,autoWire:rerouteNativeWire,
   componentBounds,synchronizeGraphics,circuitState,projectCircuitState,verifySavedCopy,componentLabels,moveLabel:moveComponentLabel,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
   parameters:parameterInfo,setParameter,rename:renameComponent,copy:copyComponent,remove:removeObject,transform:transformComponent,route:routeWire,repairWireGeometry,sheets:readSheets,

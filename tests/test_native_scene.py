@@ -56,6 +56,9 @@ def test_off_page_routing_and_fitted_export(tmp_path):
     h=EditorService()
     try:
         h.create('Off-page geometry')
+        # This fixture intentionally keeps content outside the sheet; native
+        # automatic routing is tested separately with in-page endpoints.
+        h.call('wiringOptions',{'autowire_on_connection':False,'connect_touching':False})
         first=h.edit('place',{'name':'RESISTOR_VIRTUAL','ref':'R1','x':3000,'y':4000})
         assert first['warnings'][0]['code']=='outside_page'
         h.edit('place',{'name':'RESISTOR_VIRTUAL','ref':'R2','x':3300,'y':4200})

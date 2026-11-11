@@ -149,6 +149,9 @@ function matrix(object) {
   return values.map(v=>v.readFloat());
 }
 function move(args) {
+  return moveWithNativeWiring(args);
+}
+function movePreservingGeometry(args) {
   const c=component(args.ref),object=ptr(c.id),before=matrix(object);
   const attached=wires().wires.filter(w=>w.source.ref===c.ref||w.target.ref===c.ref);
   native('Od101dll.dll','?MoveComponentBy@CODDiagram@@UAEXPAVCODComponent@@VCSize@@@Z','void',['pointer','pointer','int','int'])(diagram().graph,object,args.dx,args.dy);
@@ -205,37 +208,21 @@ function save(args) {
   return {nativeResult:result,errorCode:error.readS32(),path:args.path,geometry_repair};
 }
 function wire(args) {
-  const d=diagram(),source=component(args.source.ref),target=component(args.target.ref);
+  const source=component(args.source.ref),target=component(args.target.ref);
   const s=source.pins.find(p=>p.name===args.source.pin),t=target.pins.find(p=>p.name===args.target.pin);
   if(!s||!t)throw new Error('Named pin does not exist');
   if(args.points)for(const [point,pin] of [[args.points[0],s],[args.points.at(-1),t]])if(point.x!==pin.x||point.y!==pin.y)throw new Error('Wire path endpoints must match actual pin coordinates');
-  const tree=ptrFunction('DrwEngine.dll','?GetFirstTreeInstanceForSheet@CProject@@QAEPAVCTreeInstance@@PAVCDrwSubSheet@@@Z',['pointer','pointer'])(d.proj,d.sheet);
-  const nativeSymbol=Process.getModuleByName('SCH_CAP.dll').enumerateExports().find(e=>e.name.startsWith('?CreateWireBase@CBackAnnotationTarget'));
-  const create=new NativeFunction(nativeSymbol.address,'pointer',['pointer','pointer','pointer','pointer'],'mscdecl');
   if(s.id===t.id)throw new Error('Cannot wire a pin to itself');
   const existing=wires().wires.find(w=>(w.source.id===s.id&&w.target.id===t.id)||(w.source.id===t.id&&w.target.id===s.id));
   if(existing) {
     if(args.points)setWirePoints(ptr(existing.id),args.points);
     else if(existing.points[0].x!==s.x||existing.points[0].y!==s.y||existing.points.at(-1).x!==t.x||existing.points.at(-1).y!==t.y)
-      setWirePoints(ptr(existing.id),[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y));
+      rerouteNativeWire({id:existing.id});
     return {...wires().wires.find(w=>w.id===existing.id),alreadyConnected:true};
   }
-  let points=ptr(0);
-  if(args.points && args.points.length) {
-    const values=Memory.alloc(args.points.length*8);
-    args.points.forEach((p,i)=>{values.add(i*8).writeS32(p.x);values.add(i*8+4).writeS32(p.y);});
-    points=Memory.alloc(12);points.writePointer(values);points.add(4).writePointer(values.add(args.points.length*8));points.add(8).writePointer(values.add(args.points.length*8));
-  }
-  const w=create(tree,ptr(s.id),ptr(t.id),points);
-  if(w.isNull())throw new Error('Native wire factory rejected the connection');
-  ensureWirePen(w);
-  if(args.points)setWirePoints(w,args.points);
-  const routed=wires().wires.find(item=>item.id===w.toString());
-  if(routed.points[0].x!==s.x||routed.points[0].y!==s.y||routed.points.at(-1).x!==t.x||routed.points.at(-1).y!==t.y) {
-    const points=[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);
-    setWirePoints(w,points);
-  }
-  return {...wires().wires.find(item=>item.id===w.toString()),alreadyConnected:false};
+  const w=connectNative(ptr(s.id),ptr(t.id),args.points);
+  return {...wires().wires.find(item=>item.id===w.toString()),alreadyConnected:false,
+    routing_engine:args.points?'specified':wiringOptions().autowire_on_connection?'multisim-native':'orthogonal'};
 }
 function wires() {
   const d=diagram(),pins=new Map();
@@ -276,7 +263,7 @@ function runJob(job) {
   activeNativeOperation=job.name;
   try {
     clearTimeout(job.timer);
-    const handlers = { inspect, enumerate, components, wires, markModified:()=>{native('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(project().proj,1);return {modified:true};}, prepareClose:()=>{native('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(project().proj,0);return {ready:true};}, move:()=>move(job.args), save:()=>save(job.args), wire:()=>wire(job.args), diagramInfo: () => { const d=diagram();return {sheet:d.sheet.toString(),graph:d.graph.toString(),graphType:rtti(d.graph),candidates:d.candidates}; } };
+    const handlers = { inspect, enumerate, components, wires, markModified:()=>{native('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(project().proj,1);return {modified:true};}, prepareClose:()=>{closeWiringOptions();native('DrwEngine.dll','?SetAllModified@CProject@@QAEX_N@Z','void',['pointer','uint8'])(project().proj,0);return {ready:true};}, move:()=>move(job.args), save:()=>save(job.args), wire:()=>wire(job.args), diagramInfo: () => { const d=diagram();return {sheet:d.sheet.toString(),graph:d.graph.toString(),graphType:rtti(d.graph),candidates:d.candidates}; } };
     const handler=handlers[job.name] || (editorHandlers[job.name] && (()=>editorHandlers[job.name](job.args)));
     if (!handler) throw new Error('Unknown native operation');
     const result = handler();
@@ -339,7 +326,7 @@ rpc.exports = {
       if (!wake(uiThread, 0, 0, 0)) { jobs.splice(jobs.indexOf(job), 1); reject(new Error('Native host UI thread could not be scheduled')); }
     });
   },
-  close() { closeInteractiveOptions();killTimer(hwnd,timerId);return true; },
+  close() { closeInteractiveOptions();closeWiringOptions();killTimer(hwnd,timerId);return true; },
   identity() { return { pid: Process.id, uiThread, hwnd: hwnd.toString(), nativeModules: Process.enumerateModules().length }; }
   ,diagnostics(){return {netlist_errors:nativeErrorLog.slice(-100)};}
 };

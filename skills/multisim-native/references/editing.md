@@ -42,6 +42,8 @@ Common batch operations:
 | `moveLabel` | `ref, x, y`, optional `kind: reference | value` (absolute label center) |
 | `transform` | `ref, angle` (multiples of 90), or `ref, axis` (`horizontal` / `vertical`) |
 | `route` | `id, points` |
+| `autoWire` | `id` (Multisim native router, preserving wire ID and electrical endpoints) |
+| `connectTouching` | optional `refs` list (current sheet if omitted) |
 | `rename` | `ref, new_ref` |
 | `addText` | `text, x, y` |
 | `sheetSize` | `width, height` (96–8192 sheet units) |
@@ -56,7 +58,9 @@ Standalone `native_connect_pins` accepts `source_ref, source_pin, target_ref, ta
 - `native_route_wire(wire_id, points)` replaces the route. Each point is `{"x":integer,"y":integer}`; first and last points must match the native electrical connectors exactly.
 - For a branch, split the existing wire with `native_split_wire` at a point on its route, then connect to the returned `junction_id` with `native_connect_endpoints`.
 - Use `native_reconnect_wire` to change electrical endpoints; adding text or editing vertices does not replace an endpoint connection.
-- `native_plan_wire_route` previews an obstacle-aware orthogonal path. `native_auto_route_wire` applies a path to one selected wire as an undoable edit. `clearance` is in sheet units.
+- `native_configure_wiring` reads or sets native `autowire_on_connection`, `autowire_on_move`, `connect_touching` and `move_connection_limit` options. Settings restore on close or `reset: true`. Moves below the limit reroute through Multisim; other moves preserve attachments and route shape.
+- With `connect_touching` enabled, placement and movement connect contacts automatically. `native_connect_touching` also processes existing contacts. Interior wire contacts create native branch junctions; ambiguous crossings of different nets return an error. Consume returned state after wire splitting.
+- `native_auto_route_wire` defaults to Multisim's native router, preserving the wire ID and electrical endpoints. Native routing requires endpoints inside the actual sheet. `native_plan_wire_route` previews the MCP obstacle planner; choose `engine: obstacle` to apply its route with `clearance` in sheet units.
 - Inspect `native_check_layout` for missing connector attachment, invisible wire pens, overlapping symbols and obstructed routes. Then inspect the exported schematic for presentation issues.
 
 ## Sheets and hierarchy
