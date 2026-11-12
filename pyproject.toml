@@ -41,7 +41,7 @@ dev = ["pytest>=8,<10", "build>=1.2,<2", "twine>=6,<7"]
 packages = ["src/multisim_native_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "examples", "skills/multisim-native", "docs/tools.md", "docs/workflows.md", "docs/experiments.md", "docs/schematic.md", "docs/persistence.md", "install.ps1", "pyproject.toml", "README.md", "README.zh-CN.md", "LICENSE", "CHANGELOG.md"]
+include = ["src", "examples", "skills/multisim-native", "docs/tools.md", "docs/workflows.md", "docs/experiments.md", "docs/schematic.md", "docs/persistence.md", "install.ps1", "pyproject.toml", "README.md", "README.zh-CN.md", "LICENSE", "CHANGELOG.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

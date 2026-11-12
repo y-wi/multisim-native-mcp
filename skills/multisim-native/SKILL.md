@@ -5,13 +5,13 @@ description: "Create, edit, wire, simulate and save native Multisim circuits in 
 
 # Multisim Native
 
-Use `multisim_native` for editable Multisim objects and native simulation. This skill matches the current 0.5.0 interfaces, including persistent simulation settings and direct file editing. Tool names below omit the client prefix.
+Use `multisim_native` for editable Multisim objects and native simulation. Tool names below omit the client prefix.
 
 ## Work on the actual document
 
 - For a new circuit, determine the output directory from the current task context (normally the current working directory), choose an unused `.ms14` filename, and pass the absolute `output_path` to `native_create_circuit(output_path, title)` or a workflow `session` with `mode: create`. Use a user-specified path when provided. The MCP operates on file paths; it has no global project/workspace directory. Never use AppData, a recovery directory or a packaged template as the deliverable.
 - For an existing circuit use `native_open_circuit(source_path)` or a workflow `session` with `mode: open`. This edits the actual source. A single existing Multisim window is reused. Use `native_attach` to select a specific process/document when needed; attached windows stay open on detach.
-- A request to create, fix or modify a circuit includes saving the requested result. Use `native_save_source` or a workflow `save` stage without an output path to update the current document. Do not ask again for routine authorized saves, backups or verification. Closing through `native_close_copy` or a workflow `close` stage also saves pending changes by default; `save_changes: false` skips saving (detached user windows retain unsaved edits).
+- Save the requested circuit changes. Use `native_save_source` or a workflow `save` stage without an output path to update the current document. Closing through `native_close_copy` or a workflow `close` stage also saves pending changes by default; `save_changes: false` skips saving (detached user windows retain unsaved edits).
 - Use `native_save_copy(output_path)` for a requested Save As. In direct mode that output becomes the current document. Saving the current path routes to normal source save without an additional overwrite flag. Backups, checkpoints, logs and verification copies are managed internally.
 - Use `native_open_copy` / `session.isolated_copy: true` only for a requested comparison, diagnostic or preserved-original experiment. Pass an explicit `output_path` in the current task directory for its comparison file. Never choose copy mode merely because an ordinary edit might fail; native checkpoints handle recovery.
 
@@ -23,7 +23,7 @@ Group related edits, bind results and refer to actual returned pins/IDs. Prepare
 
 Use `native_workflow_status` waits for ongoing work. Failed or interrupted work is unfinished; inspect the failed stage, correct the cause and resume its tail. Rollback, undo, redo and controlled native refreshes can invalidate IDs; use returned current state or workflow bindings. Internal checkpoints preserve the actual workspace/source identity during recovery.
 
-The MCP imposes no task runtime, operation-count, coordinate-area, sample-count or image-pixel quotas. Use `max_runtime` only for a user-requested deadline; it is disabled by default. Status waits and pagination are response options, not execution ceilings. Native data types and actual simulator/allocator failures still apply. Run validation on a separate Windows desktop so Multisim startup does not appear on the user’s desktop.
+The MCP imposes no task runtime, operation-count, coordinate-area, sample-count or image-pixel quotas. Use `max_runtime` only for a user-requested deadline; it is disabled by default. Status waits and pagination are response options, not execution ceilings. Native data types and actual simulator/allocator failures still apply.
 
 ## Native details that affect correctness
 
@@ -46,4 +46,4 @@ Numeric analysis tools keep explicit run arguments local by default. Use `persis
 
 ## Deliver
 
-Report the actual saved workspace/source path, requested exports and relevant verification. Treat existing authorization as sufficient for routine completion. Do not substitute a cached copy or create extra versions the user did not request. If the user chooses to validate simulation personally, finish the requested edit and persistence checks without adding unrelated experiments.
+Report the actual saved workspace/source path, requested exports and relevant verification. Do not substitute a cached copy or create extra versions the user did not request.

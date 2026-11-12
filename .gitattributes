@@ -6,3 +6,6 @@
 *.yml text eol=lf
 *.ps1 text eol=crlf
 *.ms14 binary
+
+tests/ export-ignore
+.github/ export-ignore

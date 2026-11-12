@@ -2,17 +2,14 @@
 
 ## 0.5.0
 
-- Remove MCP workload ceilings for runtime, stages, edits, coordinates, analysis samples, sweeps, exports and result parsing; retain native data-format validation and optional caller-specified deadlines.
-
-- Default to real workspace documents and direct source editing; recovery files remain internal. Normal save/close updates the current file, matching existing windows are reused, and explicit comparison copies stay in the workspace.
-- Synchronize the skill, references and examples with 0.5.0 persistence and workspace defaults. Native simulations no longer inherit the fixed 25-second edit watchdog.
-- Discover and edit typed scalar settings across 19 native analysis profiles, including initial conditions, transient/AC settings, digital thresholds and 44 solver options.
-- Enable custom solver settings in the native default/custom selector so saved values actually reach the solver.
-- Run saved OP/AC/TRAN settings through Multisim's native command compiler; support persistent synchronous, background and workflow analysis configuration.
-- Add general source saves with conflict checks, backups and native reopen verification for all document edits.
-- Persist selected-sheet grid, border and bounds; commit native application wiring preferences separately with reload verification.
-- Verify embedded model text, annotations, native page names and display preferences on save; refresh shared model labels and persist sheet names correctly.
-- Audit persistence ownership for all 77 MCP tools. Runtime state, external results/records and title-block export rendering flags are explicitly distinguished from native document content.
+- Edit existing `.ms14` sources directly and create new circuits at a specified filename. Normal save and close retain changes in the current document.
+- Configure and save 19 native analysis profiles and 44 solver options, with independent interactive and analysis settings.
+- Execute saved OP, AC and transient settings, including custom solver options.
+- Save grid, border, sheet bounds, embedded models, annotations and page names; retain application wiring preferences separately.
+- Reuse an existing Multisim window and manage recovery backups automatically.
+- Support fractional rotations, off-page connections and high-resolution exports while preserving native wire attachments.
+- Run workflows without a default deadline; remove fixed workload quotas for edits, analysis samples, parameter sweeps and exports.
+- Update the MCP interface to 77 tools and refresh the agent skill and circuit examples.
 
 ## 0.4.1
 

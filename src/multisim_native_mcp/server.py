@@ -210,7 +210,7 @@ def native_save_copy(output_path: str, overwrite: bool = False, allow_off_page: 
 @server.tool()
 @checked
 def native_save_source(allow_off_page: bool = False) -> dict:
-    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification. The user's edit request includes this save; no repeated confirmation is needed. Stop simulation first. In explicit copy mode this intentionally updates the original source. Off-page content is saved; allow_off_page is retained for compatibility."""
+    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification. Stop simulation first. In explicit copy mode this intentionally updates the original source. Off-page content is saved; allow_off_page is retained for compatibility."""
     return host.save_source(allow_off_page)
 
 

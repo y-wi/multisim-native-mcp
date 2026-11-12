@@ -2,222 +2,140 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Native circuit editing, simulation and experiment verification for NI Multisim through the Model Context Protocol.
+Create, edit and simulate editable NI Multisim circuits through the Model Context Protocol.
 
-- Typed workflows with result bindings, native acceptance, recovery and artifact delivery.
-- 77 MCP tools for components, wires, sheets, subcircuits, models and analysis.
-- Persistent native simulation settings, solver options and verified saves back to the source file; see [persistence ownership](docs/persistence.md).
-- Interactive simulation with configurable time steps, real-time pacing and actual display captures.
-- Editable `.ms14` projects with named-pin connections and routed wire branches.
-- Batch edits, checkpoints, undo, redo and native save/reopen.
-- DC operating point, transient and AC analysis with RAW and CSV output.
-- Time-weighted measurements, numeric acceptance checks and scanned display decoding.
-- Parameter sweeps, candidate ranking, persistent background experiments and bilingual reports.
-- Native automatic wiring, rerouting on move, touching-pin connections and layout checks.
-- Schematic export to PNG and BMP.
-- Windows installer with automatic Python setup and Codex or DeepSeek Harness configuration.
+- **Native circuit editing:** components, named-pin wiring, branches, labels, sheets, subcircuits and embedded SPICE models.
+- **Direct file saving:** create a circuit at a chosen path or edit an existing `.ms14` file in place. Normal close saves pending changes; backups and recovery checkpoints are managed automatically.
+- **Persistent simulation settings:** configure 19 native analysis profiles and 44 solver options, including time steps, tolerances, integration, convergence, temperature and digital thresholds.
+- **Analysis and measurements:** DC operating point, transient and AC sweeps, RAW/CSV output, frequency, duty cycle, gain, phase and numeric criteria.
+- **Interactive simulation:** start, pause, resume and stop; configure real-time pacing and export actual LED/display states.
+- **Automation and export:** dependent workflows, parameter sweeps, resumable background jobs, PNG/BMP schematics and bilingual reports.
+
+The server provides 77 tools. See the [tool reference](docs/tools.md) for their parameters.
 
 ## Requirements
 
-| Component | Version |
+| Component | Requirement |
 | --- | --- |
 | Operating system | Windows 10 / 11 |
-| NI Multisim | 14.3, Windows, 32-bit |
-| Python | CPython 3.12, 32-bit; installed automatically |
-| Transport | STDIO |
+| NI Multisim | 14.3, 32-bit |
+| Python | CPython 3.12, 32-bit; the installer sets it up |
+| MCP transport | STDIO |
 
 ## Install
 
 Run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.4.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.5.0/install.ps1 | iex
 ```
 
-Restart Codex. The server appears as `multisim_native`.
-
-To install from source:
+Restart Codex to load `multisim_native`. To update an existing installation, download and run the installer with `-Force`:
 
 ```powershell
-git clone https://github.com/y-wi/multisim-native-mcp.git
-cd multisim-native-mcp
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+$installer = Join-Path $env:TEMP "multisim-native-install.ps1"
+Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.0/install.ps1" -OutFile $installer
+& $installer -Force
 ```
 
-For a custom Multisim installation directory:
+The installer accepts these options:
 
-```powershell
-.\install.ps1 -MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.3'
-```
+| Option | Purpose |
+| --- | --- |
+| `-MultisimPath 'D:\Applications\NI\Circuit Design Suite 14.3'` | Select a custom Multisim installation |
+| `-Client dsh -Profile desktop` | Configure DeepSeek Harness; `web` and `tui` profiles are also supported |
+| `-Client none` | Install and print configuration for another MCP client |
+| `-ConfigPath <path>` | Select a client configuration file |
+| `-Force` | Reinstall the package |
 
-### DeepSeek Harness
-
-From a source checkout, install for DSH Desktop:
-
-```powershell
-.\install.ps1 -Client dsh -Profile desktop
-```
-
-Use `-Profile web` or `-Profile tui` for other profiles. The installer updates `cordis.patch.yml`, preserves other plugins, and verifies the MCP connection. Active profiles reload the connection automatically.
-
-Configure an existing installation or export its YAML patch:
+DSH profiles reload the MCP connection automatically. Other clients can use the JSON returned by the installed command:
 
 ```powershell
 $mcp = Join-Path $env:LOCALAPPDATA "MultisimNativeMCP\bin\multisim-native-mcp.exe"
-& $mcp configure --client dsh --profile desktop
-& $mcp config --format dsh
+& $mcp config
 & $mcp doctor --connect
 ```
 
-The installer reuses a compatible installed environment. Use `-Force` to reinstall, or `-ConfigPath` to select a patch file.
-
-### Other MCP clients
-
-Install with `-Client none` to print the JSON configuration:
+For source installation, clone this repository and run `.\install.ps1`. To install the wheel directly:
 
 ```powershell
-.\install.ps1 -Client none
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.0/multisim_native_mcp-0.5.0-py3-none-any.whl
+multisim-native-mcp configure
 ```
 
-The installed command also exports client configuration:
+## Agent skill
 
-```powershell
-& "$env:LOCALAPPDATA\MultisimNativeMCP\bin\multisim-native-mcp.exe" config
-```
-
-Add the resulting `mcpServers.multisim_native` entry to your client's MCP configuration.
-
-### Install with uv
-
-```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.4.0/multisim_native_mcp-0.4.0-py3-none-any.whl
-$mcp = Join-Path (uv tool dir --bin) "multisim-native-mcp.exe"
-& $mcp doctor
-& $mcp configure
-```
-
-## Use
-
-Start with one of these requests in your MCP client:
-
-> Create a 12 V voltage divider with two 1 kΩ resistors. Connect the named pins, check the netlist, save the circuit and export a PNG.
-
-> Open a copy of my Multisim project. List the components and pin names, replace R2 with 2.2 kΩ and save a new project.
-
-> Move R1 and keep its wires attached. Add a branch at the midpoint of the output wire, then save with native readback verification.
-
-### Circuit workflows
-
-For complete tasks, submit one `native_run_workflow` plan with dependent edits, analysis criteria, save and export stages. The server resolves intermediate objects and waits locally. Use `native_workflow_status` with a nonzero wait for long jobs, and resume an unfinished tail with `native_control_workflow`. Single-step tools remain available for local adjustments.
-
-See [workflows](docs/workflows.md) and the complete [divider request](skills/multisim-native/assets/workflow_divider.json).
-
-### Agent skill
-
-The [multisim-native skill](skills/multisim-native/SKILL.md) gives agents staged workflows, result bindings and simulation verification guidance. Install the release package for Codex:
+Install the [multisim-native skill](skills/multisim-native/SKILL.md) for circuit workflows and native simulation guidance:
 
 ```powershell
 $skillRoot = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "skills" } else { Join-Path $env:USERPROFILE ".codex\skills" }
-$skillArchive = Join-Path $env:TEMP "multisim-native-skill-0.4.0.zip"
-Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.4.0/multisim-native-skill-0.4.0.zip" -OutFile $skillArchive
+$skillArchive = Join-Path $env:TEMP "multisim-native-skill-0.5.0.zip"
+Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.0/multisim-native-skill-0.5.0.zip" -OutFile $skillArchive
 Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 ```
 
-From a source checkout, copy `skills/multisim-native` into the same skills directory. Restart Codex to discover the skill. Invoke it explicitly as `$multisim-native`, or let the agent select it for Multisim tasks. It uses the configured `multisim_native` MCP connection.
+Restart Codex, then invoke `$multisim-native` or describe a Multisim task. From a source checkout, copy `skills/multisim-native` into the same skills directory.
 
-### Edit an existing project
+## Use
 
-1. `native_open_circuit` — open the actual source document.
-2. `native_list_components` — read the component references and exact pin names.
-3. Edit components and connections.
-4. `native_check_netlist` — check the electrical netlist.
-5. `native_save_source` — save the current workspace/source file.
-6. `native_close_copy` — close the session.
+Example requests:
 
-Use `native_attach` with a process ID to work in an existing Multisim window. Closing an attached session releases the connection and leaves that window open.
+> Create a 12 V divider with two 1 kΩ resistors. Save the circuit in the current working directory and export a PNG.
 
-Power symbols such as VCC and VEE can share a reference. Use the selected symbol's current component `id` for movement, rotation and wiring. Wire endpoints expose `component_id`; `native_list_wires` can filter by that ID. Ambiguous edit targets return candidate IDs.
+> Open my existing `.ms14` file, change R2 to 2.2 kΩ and save the source file.
 
-### Connect a wire branch
+> Configure this LED chaser's time steps and real-time pacing, save the settings, and export an actual lit frame.
 
-1. Read the route with `native_list_wires`.
-2. Call `native_split_wire` at a point on the route.
-3. Connect the returned `junction_id` with `native_connect_endpoints`.
+### Create and save circuits
 
-Read component and wire IDs again after undo, redo or a netlist check that returns `handles_invalidated: true`.
-
-### Interactive simulation
-
-Use `native_control_interactive` to `start`, `pause`, `resume` or `stop` simulation. Read `native_interactive_status` for the observed state, elapsed simulation time and errors. Export actual lit LEDs or displays with `native_export_interactive_image`.
-
-For a low-frequency LED chaser, stop simulation and call `native_configure_interactive` with:
+Supply a complete absolute filename for a new circuit; its parent directory must exist:
 
 ```json
-{
-  "time_step": 0.001,
-  "max_time_step": 0.001,
-  "real_time": true
-}
+{"output_path":"C:/Circuits/divider.ms14","title":"Voltage divider"}
 ```
 
-Then call `native_control_interactive` with `{"action": "start"}`. The 1 ms steps reduce solver work; native real-time pacing keeps light changes observable. Choose smaller steps for faster signals, and verify the frequency and output sequence after changing them.
+Pass that request to `native_create_circuit`. For an existing circuit, call `native_open_circuit` with `source_path`. The server reuses a single running Multisim window when available; `native_attach` selects a specific process and document.
 
-By default interactive settings belong to the native document and persist through normal save/close. Use persist:false for an intentionally temporary override; read that override with persist:false and confirm it with interactive_options.last_start.
+Use `native_save_source` for normal saves. `native_close_copy` saves pending edits before closing an owned session or detaching from an existing window. `native_save_copy(output_path)` performs Save As, while `native_open_copy` creates a separate comparison document. Saving the current document does not require an overwrite flag; replacing another existing file uses `overwrite:true`.
 
-To keep these settings in the original `.ms14`, call `native_configure_interactive` with `{"time_step": 0.001, "max_time_step": 0.001, "real_time": true, "persist": true, "save_to_source": true}`. The server writes native document properties, backs up the source and independently reopens the saved circuit to verify all simulation settings. Ordinary Multisim starts after reopening use those steps without an MCP override. External source edits block replacement. With only `persist: true`, settings remain in the editable document until normal save/close writes them; `saved_to_file` reports this distinction. Read document settings with `{"persist": true}`; restore automatic steps and real-time pacing with `{"persist": true, "reset": true}` (then save). Numeric-analysis definitions and other solver options are preserved.
+The calling task chooses file locations. The server does not configure a global project directory.
 
-Example request:
+### Save simulation settings
 
-> Run this low-frequency LED chaser interactively with 1 ms steps and real-time pacing. Check its frequency and LED sequence, then export a frame showing an actual lit LED.
+Stop simulation, then call `native_configure_interactive`:
 
-## Tools
+```json
+{"time_step":0.001,"max_time_step":0.001,"real_time":true,"save_to_source":true}
+```
 
-| Category | Operations |
-| --- | --- |
-| Workflows | Dependent stages, result bindings, acceptance, wait, cancel, resume, session revisions |
-| Sessions | Runtime checks, direct file open/create, explicit comparison copies, attach, diagnostics, close |
-| Components | Library search, place, copy, delete, replace, rename |
-| Parameters | Read/write parameters and embedded SPICE models |
-| Geometry | Move, rotate, mirror, route wires, add text |
-| Connections | Named pins, native autowiring, touching contacts, junctions, branches, endpoint replacement, net labels |
-| Hierarchy | Sheets, subcircuits, hierarchical ports |
-| History | Batch editing, checkpoints, undo, redo |
-| Analysis | DC operating point, transient, AC lin/dec/oct, mixed RAW plots |
-| Interactive simulation | Start, pause, resume, stop, configurable time steps, real-time pacing, live display states |
-| Measurements | Mean, RMS, extrema, frequency, duty cycle, AC gain and phase |
-| Verification | Limits, target tolerances, multiplexed seven-segment decoding |
-| Experiments | Parameter sweeps, constraints, ranking, background jobs, cancel and retry |
-| Reports | Chinese/English HTML, Markdown, CSV, native circuit PNG and waveform SVG |
-| Layout | Endpoint checks, native wire rerouting, component bounds, orthogonal obstacle planning |
-| Export | Native `.ms14`, PNG, BMP, RAW, CSV |
+This saves 1 ms time steps and real-time pacing to the current `.ms14` file. Choose time steps for the circuit's fastest relevant signal. Without `save_to_source`, settings remain in the document until normal save or close; `persist:false` selects temporary session settings.
 
-[Schematic guide](docs/schematic.md) · [Experiment guide](docs/experiments.md) · [Tool reference](docs/tools.md) · [Python example](examples/voltage_divider.py)
+Use `native_simulation_settings` to discover and edit analysis profiles and solver options. The `interactive` and `analysis` scopes are independent. Numeric analysis accepts `persist:true` to retain run settings, or `use_saved_settings:true` to execute saved OP/AC/TRAN settings. See [simulation settings and persistence](docs/persistence.md).
 
-New circuits are created at the absolute filename supplied by the caller. `native_open_circuit` edits an existing source directly, and normal save/close retains edits in the current document. Backups, checkpoints and logs remain internal. Explicit comparison copies use a separate filename. See [file editing and persistence](docs/persistence.md).
+### Workflows and long runs
+
+`native_run_workflow` combines editing, analysis, numeric criteria, saving and export. Read progress with `native_workflow_status`; cancel or resume with `native_control_workflow`. Individual analysis jobs use `native_start_analysis`, `native_analysis_status` and `native_control_analysis`.
+
+Workflows have no default runtime deadline. `max_runtime` sets an optional deadline; status waits only control when a response returns. Editing batches, sample counts and export sizes have no MCP workload quotas; native data formats and available resources determine capacity. Client request timeouts are configured by the client.
+
+[Workflow guide](docs/workflows.md) · [Complete divider request](skills/multisim-native/assets/workflow_divider.json) · [Python example](examples/voltage_divider.py)
+
+## Guides
+
+- [Circuit editing, wiring and export](docs/schematic.md)
+- [Simulation settings and persistence](docs/persistence.md)
+- [Measurements, sweeps and reports](docs/experiments.md)
+- [All tools](docs/tools.md)
 
 ## Configuration
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `MULTISIM_NATIVE_INSTALL` | Multisim installation directory | `%ProgramFiles(x86)%\National Instruments\Circuit Design Suite 14.3` |
-| `MULTISIM_NATIVE_DATA_DIR` | Internal recovery and session artifacts | `%LOCALAPPDATA%\MultisimNativeMCP` |
+| `MULTISIM_NATIVE_DATA_DIR` | Recovery files and session artifacts | `%LOCALAPPDATA%\MultisimNativeMCP` |
 | `MULTISIM_NATIVE_IO_DIR` | Optional ASCII directory for legacy SPICE file transfers | System temporary directory |
 | `CODEX_HOME` | Codex configuration directory | `%USERPROFILE%\.codex` |
 
-Run `multisim-native-mcp doctor` to check the Python architecture, package resources and Multisim modules. `configure` preserves the other Codex settings and creates a timestamped backup when updating an existing configuration.
-
-## Development
-
-```powershell
-uv venv --python cpython-3.12-windows-x86-none
-uv pip install -e '.[dev]'
-.\.venv\Scripts\python.exe -m pytest -m 'not native'
-.\.venv\Scripts\python.exe -m pytest -m native
-uv build
-```
-
-Native tests use the installed Multisim runtime. Close Multisim before running them.
-
 ## License
 
-[MIT License](LICENSE).
+[MIT](LICENSE).
