@@ -27,11 +27,11 @@ from .paths import DATA_DIR
 Image.MAX_IMAGE_PIXELS = None
 
 MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
-             'rename','addText','labelWire','splitWire','connectEndpoint','reconnect',
+             'rename','addText','updateText','deleteText','updateSheet','moveJunction','updatePort','labelWire','splitWire','connectEndpoint','reconnect',
              'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize','repairWireGeometry',
              'autoWire','connectTouching'}
 TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect','replace','splitWire',
-                    'createSheet','createSubcircuit','createPort','rename','connectTouching'}
+                    'createSheet','createSubcircuit','createPort','updatePort','rename','connectTouching'}
 
 
 class NativeSaveError(RuntimeError):
@@ -384,7 +384,7 @@ class EditorService(NativeHost):
         from .workflow_values import resolve,reference_roots
         operations=[self.normalize_edit(op) for op in operations]
         packed={'place','move','alignPin','moveLabel','transform','wire','connectEndpoint','route','autoWire',
-                'setParameter','addText','labelWire','splitWire','rename','remove','connectTouching',
+                'setParameter','addText','updateText','deleteText','updateSheet','moveJunction','updatePort','labelWire','splitWire','rename','remove','connectTouching',
                 'sheetSize','sheetTitle','repairWireGeometry'}
         with self.lock:
             if self.call('simulationInfo')['state'] in (1,2):
@@ -490,12 +490,12 @@ class EditorService(NativeHost):
     @staticmethod
     def normalize_edit(operation):
         operation=dict(operation);args=dict(operation.get('arguments',{}))
-        if operation.get('operation')=='remove':
-            for alias,target in [('object_id','id'),('component_ref','ref')]:
+        if operation.get('operation') in ('remove','updateText','deleteText','moveJunction','updatePort'):
+            for alias,target in [('object_id','id')]+([('component_ref','ref')] if operation['operation']=='remove' else []):
                 if alias in args:
                     if target in args and args[target]!=args[alias]:raise ValueError('Conflicting '+alias+' and '+target)
                     args[target]=args.pop(alias)
-            if bool(args.get('id'))==bool(args.get('ref')):raise ValueError('remove requires one object_id/id or component_ref/ref')
+            if operation['operation']=='remove' and bool(args.get('id'))==bool(args.get('ref')):raise ValueError('remove requires one object_id/id or component_ref/ref')
         operation['arguments']=args
         return operation
 
@@ -509,6 +509,15 @@ class EditorService(NativeHost):
 
     @staticmethod
     def validate(op,args):
+        required={'addText':('text','x','y'),'updateText':('id',),'deleteText':('id',),'moveJunction':('id','x','y'),'updatePort':('id',)}
+        for key in required.get(op,()):
+            if key not in args:raise ValueError(op+' requires '+key)
+        for name,fields in [('updateText',('text','x','y')),('updateSheet',('title','page','width','height')),('updatePort',('name','x','y'))]:
+            if op==name and not any(k in args for k in fields):raise ValueError(name+' requires '+', '.join(fields))
+        if op in ('updateText','deleteText','moveJunction','updatePort') and (not isinstance(args.get('id'),str) or not args['id'] or '\0' in args['id']):raise ValueError('Provide a current object ID')
+        if op=='updateSheet':
+            for key in ('width','height'):
+                if key in args:EditorService.validate('sheetSize',{'width':args[key],'height':args[key]})
         if op=='connectTouching' and 'refs' in args:
             refs=args['refs']
             if not isinstance(refs,list) or not refs or any(not isinstance(ref,str) or not ref for ref in refs):
@@ -541,7 +550,7 @@ class EditorService(NativeHost):
             for point in args['points']:
                 for key in ('x','y'):
                     if not isinstance(point.get(key),int) or not -2147483648<=point[key]<=2147483647: raise ValueError('Invalid route coordinate')
-        for key in ('name','text','title','family','group','manufacturer','expression'):
+        for key in ('name','text','title','page','family','group','manufacturer','expression'):
             if key in args and (not isinstance(args[key],str) or '\x00' in args[key]): raise ValueError('Invalid '+key)
 
     def history(self, action):

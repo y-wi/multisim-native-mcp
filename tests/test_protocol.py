@@ -30,7 +30,8 @@ def test_installed_package_stdio(tmp_path):
                 assert state_tool.input_schema['properties']['include_parameters']['default'] is False
                 save_tool=next(t for t in listed.tools if t.name=='native_save_source')
                 assert save_tool.input_schema['properties']['verify']['default'] is True
-                assert len(names)==77
+                assert len(names)==83
+                assert {'native_list_texts','native_update_text','native_delete_text','native_update_sheet','native_update_hierarchical_port','native_move_junction'} <= names
                 assert {'native_run_workflow','native_workflow_status','native_control_workflow','native_prepare_components','native_session_changes','native_attach','native_split_wire','native_save_copy','native_read_waveform','native_repair_wire_geometry','native_control_interactive','native_interactive_status','native_configure_interactive','native_export_interactive_image','native_configure_wiring','native_connect_touching'} <= names
                 status=await session.call_tool('native_runtime_status',{})
                 assert not status.is_error
@@ -60,5 +61,5 @@ def test_connection_check_does_not_change_existing_experiment_records(tmp_path,m
     record.write_bytes(raw)
     monkeypatch.setenv('MULTISIM_NATIVE_DATA_DIR',str(tmp_path))
     result=asyncio.run(check_connection())
-    assert result['tool_count']==77 and result['server_version']=='0.5.1'
+    assert result['tool_count']==83 and result['server_version']=='0.5.1'
     assert record.read_bytes()==raw

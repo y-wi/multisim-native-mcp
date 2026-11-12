@@ -4,7 +4,7 @@ GROUPS = [
 native_move_component_label native_connect_pins native_connect_touching native_move_component
 native_place_component native_copy_component native_delete_object native_set_parameter native_replace_component
 native_set_model_text native_transform_component native_rename_component native_route_wire native_repair_wire_geometry
-native_split_wire native_connect_endpoints native_reconnect_wire native_add_text native_label_wire
+native_split_wire native_connect_endpoints native_reconnect_wire native_add_text native_update_text native_delete_text native_update_sheet native_move_junction native_update_hierarchical_port native_label_wire
 native_create_sheet native_create_subcircuit native_create_hierarchical_port native_edit_batch native_auto_route_wire'''),
     ('document_settings','circuit','Native document properties; save explicitly. Interactive settings are document-owned by default; persist=false explicitly selects temporary overrides.', '''
 native_simulation_settings native_configure_sheet_display native_configure_interactive'''),
@@ -29,7 +29,7 @@ native_analysis_status native_interactive_status native_control_interactive nati
 native_prepare_components native_open_circuit native_open_copy native_close_copy native_attach native_create_circuit native_select_sheet'''),
     ('inspection','read_only','Reads circuit, waveform or persistence information; creates no document setting that needs saving.', '''
 native_session_changes native_runtime_status native_diagnostics native_list_components native_get_circuit_state
-native_list_wires native_search_library native_get_parameters native_get_model native_list_sheets native_list_projects
+native_list_wires native_list_texts native_search_library native_get_parameters native_get_model native_list_sheets native_list_projects
 native_check_netlist native_read_waveform native_measure_waveform native_verify_waveform native_decode_seven_segment
 native_check_layout native_plan_wire_route native_persistence_capabilities'''),
 ]

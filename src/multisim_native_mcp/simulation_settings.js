@@ -304,7 +304,7 @@ function persistenceSheetData(state) {
     const text=instanceString('Od101dll.dll','?GetText@CODTextComp@@',object,[treeInstance()],['pointer']);
     // Node text is generated from persistent wire naming/display properties.
     // Only independent user annotations have portable text geometry here.
-    if(text.length)annotations.push({text,transform:matrix(object)});
+    annotations.push({text,transform:matrix(object)});
   }
   const endpoint=p=>Object.fromEntries(['ref','pin','x','y'].filter(k=>k in p).map(k=>[k,p[k]]));
   const wire_labels=wires().wires.flatMap(w=>{const label=persistentWireLabel(w.id);return label?[{source:endpoint(w.source),target:endpoint(w.target),...label}]:[];});

@@ -147,7 +147,7 @@ def native_list_components() -> dict:
 @server.tool()
 @checked
 def native_get_circuit_state(include_parameters: bool = False) -> dict:
-    """Read page bounds in sheet units, content bounds, components, named pins and wires. Parameter metadata is omitted by default; include_parameters=true requests it. Origin is top-left; 96 sheet units per inch. Paper dimensions are separate from sheet dimensions."""
+    """Read page bounds in sheet units, content bounds, components, named pins, wires and free text in texts (current IDs, content, insertion coordinates, transforms and bounds). Parameter metadata is omitted by default; include_parameters=true requests it. Origin is top-left; 96 sheet units per inch. Paper dimensions are separate from sheet dimensions."""
     return host.call('circuitState',{'include_parameters':include_parameters})
 
 
@@ -357,7 +357,7 @@ def native_repair_wire_geometry() -> dict:
 @server.tool()
 @checked
 def native_split_wire(wire_id: str, x: int, y: int) -> dict:
-    """Split a wire at a point on its existing route and create a real electrical junction for a branch."""
+    """Split a wire at a point on its existing route and create a real electrical junction for a branch. Move it later with native_move_junction; delete with native_delete_object."""
     return host.edit('splitWire',{'id':wire_id,'x':x,'y':y})
 
 
@@ -378,8 +378,36 @@ def native_reconnect_wire(wire_id: str, source: dict | None = None, target: dict
 @server.tool()
 @checked
 def native_add_text(text: str, x: int, y: int) -> dict:
-    """Insert editable native schematic text at sheet coordinates."""
+    """Insert native free text at sheet coordinates; return its ID, text, insertion coordinates, transform and bounds. Query existing notes with native_list_texts or circuit state, revise with native_update_text and remove with native_delete_text/native_delete_object."""
     return host.edit('addText',{'text':text,'x':x,'y':y})
+
+
+@server.tool()
+@checked
+def native_list_texts() -> dict:
+    """List independent free text on the selected sheet, including current IDs, Unicode text, insertion coordinates, transforms and bounds. Also returned as state.texts. Component labels and wire net labels have their own editing tools."""
+    return {'texts':host.call('textObjects')}
+
+
+@server.tool()
+@checked
+def native_update_text(object_id: str, text: str | None = None, x: int | None = None, y: int | None = None) -> dict:
+    """Edit an existing free text object's content and/or absolute insertion coordinates in place. Omitted fields retain their values; an empty string clears content. Preserves its ID and formatting. Supports undo and normal verified source save."""
+    return host.edit('updateText',{'id':object_id,**{k:v for k,v in {'text':text,'x':x,'y':y}.items() if v is not None}})
+
+
+@server.tool()
+@checked
+def native_delete_text(object_id: str) -> dict:
+    """Delete one independent free text object by its current ID. Supports undo and verified source save. native_delete_object also accepts free text IDs."""
+    return host.edit('deleteText',{'id':object_id})
+
+
+@server.tool()
+@checked
+def native_move_junction(junction_id: str, x: int, y: int) -> dict:
+    """Move a branch junction to absolute sheet coordinates, preserving all connected wires and updating their orthogonal endpoint routes. Returns actual snapped coordinates and routes."""
+    return host.edit('moveJunction',{'id':junction_id,'x':x,'y':y})
 
 
 @server.tool()
@@ -406,8 +434,15 @@ def native_select_sheet(index: int) -> dict:
 @server.tool()
 @checked
 def native_create_sheet(title: str, page: str = '') -> dict:
-    """Create and initialize an independent native schematic sheet in the current project."""
+    """Create and initialize an independent native schematic sheet in the current project. Modify the selected sheet later with native_update_sheet."""
     return {'sheets':host.edit('createSheet',{'title':title,'page':page})}
+
+
+@server.tool()
+@checked
+def native_update_sheet(title: str | None = None, page: str | None = None, width: int | None = None, height: int | None = None) -> dict:
+    """Update the selected sheet's title/page name and/or native width/height in one undoable edit. Omitted fields retain their values. Select the child sheet to edit a subcircuit's sheet properties. Save normally to persist; the root window caption follows its filename on reopen, while page names are document properties."""
+    return host.edit('updateSheet',{k:v for k,v in {'title':title,'page':page,'width':width,'height':height}.items() if v is not None})
 
 
 @server.tool()
@@ -420,8 +455,15 @@ def native_create_subcircuit(title: str, reference: str, x: int, y: int) -> dict
 @server.tool()
 @checked
 def native_create_hierarchical_port(name: str, x: int, y: int) -> dict:
-    """Add a real hierarchical electrical connector on the selected child sheet; update its parent subcircuit symbol pins. Read the exact returned connector pin name before wiring."""
+    """Add a real hierarchical electrical connector on the selected child sheet; update its parent subcircuit symbol pins. Read the exact returned connector pin name before wiring. Rename/move it later with native_update_hierarchical_port."""
     return host.edit('createPort',{'name':name,'x':x,'y':y})
+
+
+@server.tool()
+@checked
+def native_update_hierarchical_port(object_id: str, name: str | None = None, x: int | None = None, y: int | None = None) -> dict:
+    """Rename and/or move an existing hierarchical connector on the selected child sheet. Updates its electrical name and parent symbol pins, preserving attached wires. Omitted fields retain their values; save normally to persist."""
+    return host.edit('updatePort',{'id':object_id,**{k:v for k,v in {'name':name,'x':x,'y':y}.items() if v is not None}})
 
 
 @server.tool()
@@ -434,7 +476,7 @@ def native_list_projects() -> dict:
 @server.tool()
 @checked
 def native_edit_batch(operations: list[dict], include_state: bool = True, atomic: bool = True) -> dict:
-    """Apply a nonempty batch of edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, autoWire (id), connectTouching (optional refs), setParameter, rename, addText, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (positive native width/height)."""
+    """Apply a nonempty batch of edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, autoWire (id), connectTouching (optional refs), setParameter, rename, addText, updateText, deleteText, updatePort, moveJunction, updateSheet, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (positive native width/height)."""
     return host.batch(operations,include_state,atomic)
 
 

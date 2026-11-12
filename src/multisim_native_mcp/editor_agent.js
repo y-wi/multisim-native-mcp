@@ -99,6 +99,8 @@ function replaceComponent(args) {
   return {component:component(old.ref),reconnected_wires:links.length};
 }
 function renameComponent(args) {
+  const target=component(args.ref);
+  if(rtti(ptr(target.id)).name==='.?AVCIITHierConnector@@')return updatePort({id:target.id,name:args.new_ref}).component;
   if(components().components.some(c=>c.ref===args.new_ref))throw new Error('Reference already exists');
   const c=component(args.ref),mgr=method('SCH_CAP.dll','?GetRefDesMgr@CMultisimExtension@@','pointer',['pointer','uint'])(extension(),0),text=pathString(args.new_ref);
   method('SCH_CAP.dll','?RenameComponent@CIITHierRefDesManager@@','void',['pointer','pointer','pointer','pointer'])(mgr,ptr(c.id),treeInstance(),text);
@@ -449,7 +451,29 @@ function allocateObject(className,constructor,args,types) {
 function addText(args) {
   const object=allocateObject('CODTextComp','??0CODTextComp@@QAE@PB_W@Z',[Memory.allocUtf16String(args.text)],['pointer']);
   method('Od101dll.dll','?AddComponent@CODDiagram@@','void',['pointer','pointer','int','int','pointer','uint8'])(diagram().graph,object,args.x,args.y,treeInstance(),0);
-  return {id:object.toString(),text:instanceString('Od101dll.dll','?GetText@CODTextComp@@',object,[treeInstance()],['pointer'])};
+  return textObjects().find(t=>t.id===object.toString());
+}
+function textObjects() {
+  const context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  return listChildren(diagram().composite).filter(o=>rtti(o).name==='.?AVCODTextComp@@').map(o=>{
+    const graphic=method('Od101dll.dll','?GetGraphic@CODComponent@@QAEP','pointer',['pointer'])(o),rect=Memory.alloc(16);
+    method('Od101dll.dll','?GetBox@CODGraphic@@QAEXAAVCRect@@AAVCODInstContext@@@Z','void',['pointer','pointer','pointer'])(graphic,rect,context);
+    const [x1,y1,x2,y2]=[0,4,8,12].map(n=>rect.add(n).readS32()),transform=matrix(o);
+    return {id:o.toString(),text:instanceString('Od101dll.dll','?GetText@CODTextComp@@',o,[treeInstance()],['pointer']),
+      x:transform[4],y:transform[5],transform,bounds:{left:Math.min(x1,x2),top:Math.min(y1,y2),right:Math.max(x1,x2),bottom:Math.max(y1,y2)}};
+  });
+}
+function updateText(args) {
+  const before=textObjects().find(t=>t.id===args.id);if(!before)throw new Error('Free text object does not exist on the selected sheet: '+args.id);
+  const object=ptr(before.id),context=Process.getModuleByName('Od101dll.dll').getExportByName('?DefIC@@3VCODInstContext@@A');
+  if(args.text!==undefined)method('Od101dll.dll','?SetText@CODTextComp@@','void',['pointer','pointer','pointer'])(object,Memory.allocUtf16String(args.text),context);
+  if(args.x!==undefined||args.y!==undefined)method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(diagram().graph,object,(args.x??before.x)-before.x,(args.y??before.y)-before.y);
+  method('Od101dll.dll','?Update@CODComponent@@UAEXAAVCODInstContext@@_N@Z','void',['pointer','pointer','uint8'])(object,context,0);
+  return {...textObjects().find(t=>t.id===args.id),before};
+}
+function deleteText(args) {
+  if(!textObjects().some(t=>t.id===args.id))throw new Error('Free text object does not exist on the selected sheet: '+args.id);
+  return removeObject(args);
 }
 function labelWire(args) {
   const w=wires().wires.find(w=>w.id===args.id);if(!w)throw new Error('Wire does not exist');
@@ -545,18 +569,60 @@ function createPort(args) {
   method('Library.dll','??1CPoolString@@','void',['pointer'])(name);
   if(symbol.isNull())throw new Error('Native hierarchical connector creation failed');
   method('Od101dll.dll','?AddComponent@CODDiagram@@','void',['pointer','pointer','int','int','pointer','uint8'])(d.graph,symbol,args.x,args.y,tree,0);
-  const parent=method('DrwEngine.dll','?GetParent@CTreeInstance@@','pointer',['pointer'])(tree),sc=method('DrwEngine.dll','?GetSheetComponent@CTreeInstance@@','pointer',['pointer'])(tree);
-  const block=method('SCH_CAP.dll','?GetHierBlock@CSheetComponentMSM@@','pointer',['pointer'])(sc);
-  if(!parent.isNull()&&!block.isNull())method('SCH_CAP.dll','?UpdateSymbol@CHierBlock@@','int',['pointer','pointer','uint8'])(block,parent,1);
+  updateParentSymbol();
   return {symbol_id:symbol.toString(),type:rtti(symbol),components:components().components};
 }
+function updateParentSymbol() {
+  const tree=treeInstance(),parent=method('DrwEngine.dll','?GetParent@CTreeInstance@@','pointer',['pointer'])(tree),sc=method('DrwEngine.dll','?GetSheetComponent@CTreeInstance@@','pointer',['pointer'])(tree);
+  const block=method('SCH_CAP.dll','?GetHierBlock@CSheetComponentMSM@@','pointer',['pointer'])(sc);
+  if(!parent.isNull()&&!block.isNull())method('SCH_CAP.dll','?UpdateSymbol@CHierBlock@@','int',['pointer','pointer','uint8'])(block,parent,1);
+}
+function updatePort(args) {
+  const before=component(args.id),object=ptr(before.id);
+  if(rtti(object).name!=='.?AVCIITHierConnector@@')throw new Error('Object is not a hierarchical connector');
+  if(args.name!==undefined&&args.name!==before.local_ref){
+    if(!args.name.length)throw new Error('Hierarchical connector name must not be empty');
+    const tree=treeInstance(),container=method('SchematicCapture.dll','?GetNetContainerFromTreeInstance@CElectricalConnectionBase@@','pointer',['pointer'],'mscdecl')(tree),name=Memory.alloc(64);
+    method('Library.dll','??0CPoolString@@QAE@PB_W@Z','pointer',['pointer','pointer'])(name,Memory.allocUtf16String(args.name));
+    // This virtual implementation receives the CConnector interface subobject.
+    try{method('SCH_CAP.dll','?SetName@CIITHierConnector@@','void',['pointer','pointer','pointer','pointer'])(basePointer(object,'.?AVCConnector@@'),container,tree,name);}
+    finally{method('Library.dll','??1CPoolString@@','void',['pointer'])(name);}
+    updateParentSymbol();
+    if(component(before.id).local_ref!==args.name)throw new Error('Native hierarchical connector rename failed');
+  }
+  const moved=args.x!==undefined||args.y!==undefined?move({ref:before.id,dx:(args.x??before.transform[4])-before.transform[4],dy:(args.y??before.transform[5])-before.transform[5]}):null;
+  return {component:component(before.id),before,movement:moved};
+}
 function sheetTitle(args) {
+  if(!method('DrwEngine.dll','?GetParent@CTreeInstance@@','pointer',['pointer'])(treeInstance()).isNull())return updateSheet({title:args.title,page:args.title});
   const name=pathString(args.title);
   // The root window caption follows the filename on reopen. Persist the native
   // page name as well; changing only SetTitle previously changed a live caption.
   method('DrwEngine.dll','?SetPageName@CDrwSubSheet@@','void',['pointer','pointer','uint8'])(diagram().sheet,name,1);
   method('DrwEngine.dll','?SetTitle@CDrwSubSheet@@','void',['pointer','pointer','uint8'])(diagram().sheet,name,0);
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(name);return {sheets:readSheets()};
+}
+function updateSheet(args) {
+  const d=diagram(),before=readSheets().find(s=>s.selected);
+  // Setters update the drawing; workspace notifications migrate hierarchical reference maps.
+  if(args.title!==undefined){
+    const old=pathString(before.title),name=pathString(args.title);
+    try{
+      method('DrwEngine.dll','?SetTitle@CDrwSubSheet@@','void',['pointer','pointer','uint8'])(d.sheet,name,0);
+      method('DrwEngine.dll','?RenameSheet@CWorkspaceContainer@@','void',['pointer','pointer','pointer','pointer'])(d.container,old,name,d.sheet);
+    }
+    finally{for(const v of [old,name])native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(v);}
+  }
+  if(args.page!==undefined){
+    const old=pathString(before.page),page=pathString(args.page);
+    try{
+      method('DrwEngine.dll','?SetPageName@CDrwSubSheet@@','void',['pointer','pointer','uint8'])(d.sheet,page,1);
+      method('DrwEngine.dll','?RenamePage@CWorkspaceContainer@@','void',['pointer','pointer','pointer','pointer'])(d.container,old,page,d.sheet);
+    }
+    finally{for(const v of [old,page])native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(v);}
+  }
+  if(args.width!==undefined||args.height!==undefined){const current=pageGeometry();sheetSize({width:args.width??current.width,height:args.height??current.height});}
+  return {sheet:readSheets().find(s=>s.selected),sheets:readSheets(),topology_changed:args.title!==undefined||args.page!==undefined};
 }
 function sheetSize(args) {
   if(['width','height'].some(k=>Math.round(args[k]/96*25.4*500000)>2147483647))throw new Error('Sheet dimensions exceed the native signed 32-bit CUTRect work-area format');
@@ -872,6 +938,26 @@ function splitWire(args) {
   setWirePoints(first,[...w.points.slice(0,segment),p]);setWirePoints(second,[p,...w.points.slice(segment)]);
   return {junction_id:junction.toString(),wire_ids:[first.toString(),second.toString()]};
 }
+function moveJunction(args) {
+  if(!enumerate().objects.some(o=>o.id===args.id&&o.name==='.?AVCODPinComp@@'))throw new Error('Junction does not exist on the selected sheet');
+  const object=ptr(args.id),before=connectorGeometry(object),attached=wires().wires.filter(w=>w.source.id===args.id||w.target.id===args.id);
+  method('Od101dll.dll','?MoveComponentBy@CODDiagram@@','void',['pointer','pointer','int','int'])(diagram().graph,object,args.x-before.x,args.y-before.y);
+  const after=connectorGeometry(object);
+  for(const w of attached){
+    let points=w.points;
+    for(const end of ['source','target'])if(w[end].id===args.id){
+      if(end==='source')points=points.slice().reverse();
+      const old=points.at(-1),previous=points.at(-2),next={x:after.x,y:after.y};
+      const corner=previous.y===old.y?{x:next.x,y:old.y}:{x:old.x,y:next.y};
+      points=[...points.slice(0,-1),corner,next].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);
+      if(end==='source')points.reverse();
+    }
+    setWirePoints(ptr(w.id),points);
+  }
+  const current=wires().wires.filter(w=>w.source.id===args.id||w.target.id===args.id);
+  if(current.length!==attached.length||current.some(w=>!routeEndsMatch(w)))throw new Error('Junction movement detached an electrical endpoint');
+  return {id:args.id,before,after,updated_wires:current.length,wires:current};
+}
 function connectEndpoint(args) {
   const resolve=e=>{
     if(e.ref){const c=component(e.ref),p=c.pins.find(p=>p.name===e.pin);if(!p)throw new Error('Pin not found');return ptr(p.id);}
@@ -1159,7 +1245,7 @@ function circuitState(args={}) {
   const state=componentBounds(),page=pageGeometry();
   for(const c of state.components)c.labels=componentLabels({ref:c.id},c).labels;
   if(args.include_parameters)for(const c of state.components){const p=parameterInfo({ref:c.id},c);c.parameters=p.parameters;c.library={family:p.info[0],name:p.info[1],symbol_family:p.info[2],model:p.info[3]};}
-  return {sheets:readSheets(),page,components:state.components,wires:wires().wires,content_bounds:contentBounds(),
+  return {sheets:readSheets(),page,components:state.components,wires:wires().wires,texts:textObjects(),content_bounds:contentBounds(),
     ...(args.include_persistence?persistenceSheetData(state):{})};
 }
 function projectCircuitState(args={}) {
@@ -1279,16 +1365,20 @@ function validateSequenceOperation(op,a){
   if(op==='remove'){for(const [alias,key] of [['object_id','id'],['component_ref','ref']])if(alias in a){if(key in a&&a[key]!==a[alias])throw new Error('Conflicting '+alias+' and '+key);a[key]=a[alias];delete a[alias];}}
   const required={place:['name','x','y'],move:['ref','dx','dy'],alignPin:['ref','pin','x','y'],moveLabel:['ref','x','y'],transform:['ref'],
     wire:['source','target'],connectEndpoint:['source','target'],route:['id','points'],autoWire:['id'],
-    setParameter:['ref','index'],addText:['text','x','y'],labelWire:['id','name'],splitWire:['id','x','y'],
+    setParameter:['ref','index'],addText:['text','x','y'],updateText:['id'],deleteText:['id'],updateSheet:[],updatePort:['id'],moveJunction:['id','x','y'],labelWire:['id','name'],splitWire:['id','x','y'],
     rename:['ref','new_ref'],remove:[],connectTouching:[],sheetSize:['width','height'],sheetTitle:['title'],repairWireGeometry:[]};
   if(!(op in required))throw new Error('Operation requires an individual native transaction: '+op);
   for(const k of required[op])if(!(k in a))throw new Error(op+' requires '+k);
-  for(const k of ['ref','id','name','text','family','group','manufacturer','title','new_ref','expression','pin'])
+  for(const k of ['ref','id','name','text','family','group','manufacturer','title','page','new_ref','expression','pin'])
     if(k in a&&(typeof a[k]!=='string'||a[k].includes('\0')))throw new Error('Invalid '+k);
   for(const k of ['x','y','dx','dy','index','width','height'])if(k in a&&(!Number.isInteger(a[k])||a[k]<-2147483648||a[k]>2147483647))throw new Error('Invalid '+k);
   if(op==='place'&&!['origin','center','pin'].includes(a.anchor||'origin'))throw new Error('Invalid placement anchor');
   if(op==='transform'&&(!(('angle' in a)||('axis' in a))||('angle' in a&&(!Number.isFinite(a.angle)))||('axis' in a&&!['horizontal','vertical'].includes(a.axis))))throw new Error('Invalid transform');
   if(op==='remove'&&!a.ref&&!a.id)throw new Error('remove requires ref or id');
+  if(op==='updateText'&&!['text','x','y'].some(k=>k in a))throw new Error('updateText requires text, x or y');
+  if(op==='updatePort'&&!['name','x','y'].some(k=>k in a))throw new Error('updatePort requires name, x or y');
+  if(op==='updateSheet'&&!['title','page','width','height'].some(k=>k in a))throw new Error('updateSheet requires title, page, width or height');
+  if(op==='updateSheet'&&['width','height'].some(k=>k in a&&(a[k]<=0||Math.round(a[k]/96*25.4*500000)>2147483647)))throw new Error('Sheet dimensions exceed the native signed 32-bit CUTRect work-area format');
   if(op==='setParameter'&&((('value' in a)===('expression' in a))||a.index<0||a.index>2147483647||('value' in a&&!Number.isFinite(a.value))))throw new Error('Invalid parameter value or index');
   if(op==='sheetSize'&&['width','height'].some(k=>a[k]<=0||a[k]>2147483647))throw new Error('Sheet dimensions must be positive signed 32-bit integers');
   if('points' in a&&(!Array.isArray(a.points)||a.points.length<2||a.points.some(p=>!p||['x','y'].some(k=>!Number.isInteger(p[k])||p[k]<-2147483648||p[k]>2147483647))))throw new Error('Invalid wire route');
@@ -1336,7 +1426,7 @@ const editorHandlers={
     for(let n=0;n<count;n++){const port=method('CIRCEXP.dll','?GetPort@CiComponent@@QBEPAVCiPort@@H@Z','pointer',['pointer','int'])(ci,n);ports.push({id:port.toString(),name:returnedString('CIRCEXP.dll','?GetLocalName@CiElement@@',port)});}
     return {ref:args.ref,ports};
   },
-  setProjectPath:args=>setProjectPath(args.path),snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveOptions,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
+  setProjectPath:args=>setProjectPath(args.path),snapshot,restoreSnapshot,librarySearch,place:placeComponent,addText,textObjects,updateText,deleteText,updateSheet,updatePort,moveJunction,labelWire,modelInfo,setModelText,createSubcircuit,createPort,sheetTitle,sheetSize,splitWire,connectEndpoint,reconnect:reconnectWire,replace:replaceComponent,exportImage,exportInteractiveImage,interactiveOptions,interactiveStatus,interactiveCommand,netlist,menus,selectSheet,projects,selectProject,createSheet,newProject,simulationInfo,simulate,simulationExport,
   dbInfo:()=>{
     const db=masterDb(),manager=method('LibraryAccess.dll','?GetDatabaseManager@CDatabaseManager@@SAP','pointer',[],'mscdecl')(),files=method('LibraryAccess.dll','?GetDatabaseFileManager@CDatabaseManager@@','pointer',['pointer'])(manager),record=method('LibraryAccess.dll','?GetMasterDatabaseFile@CDatabaseFileManager@@','pointer',['pointer'])(files),strings=[];
     for(let offset=0;offset<128;offset+=4)try{const value=record.add(offset).readPointer().readUtf16String(520);if(value&&/^[A-Za-z]:|Master|Database/i.test(value))strings.push({offset,value});}catch(_){}

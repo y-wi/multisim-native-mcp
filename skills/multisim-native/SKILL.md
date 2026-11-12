@@ -34,6 +34,8 @@ The MCP imposes no task runtime, operation-count, coordinate-area, sample-count 
 
 For detailed editing/geometry contracts read [references/editing.md](references/editing.md); for analysis and display verification read [references/analysis.md](references/analysis.md).
 
+Free text is returned in `state.texts` or `native_list_texts`. Edit its content/absolute insertion position with `native_update_text`, or remove it with `native_delete_text` / `native_delete_object`; retain the existing object when revising a note. Use `native_update_sheet` for selected-sheet properties, `native_update_hierarchical_port` for a connector's electrical name/position and `native_move_junction` for a branch point with attached wires. These edits support normal source saves and undo.
+
 ## Persistent configuration in 0.5.1
 
 `native_simulation_settings` discovers existing analysis types, typed scalar paths, solver options and revision before editing. It supports independent `interactive` and `analysis` scopes and native custom/default solver selection. Use `solver_options` for tolerances, integration, convergence, temperature and flags; null/false disables an override. Integer path tokens select duplicate labels and require the returned `expected_revision`. Existing scalar fields are editable; the API does not create empty native lists or new analysis instances. Numeric execution supports OP/AC/TRAN; other profile settings can be saved for native Multisim use.

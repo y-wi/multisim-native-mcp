@@ -2,6 +2,9 @@
 
 ## 0.5.1
 
+- List, edit and delete free text in place, including workflow bindings, undo and verified saves.
+- Update sheet properties, hierarchical connector names/positions and branch junction positions through dedicated tools.
+
 - Verify persistent wire names and visibility independently of generated node text, and report precise save differences.
 - Unify standalone and batch deletion selectors; support generated net-label removal while retaining its wire.
 - Honor verification options when saving the current source, including workflow saves.

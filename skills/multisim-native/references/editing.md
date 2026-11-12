@@ -71,6 +71,16 @@ Standalone `native_connect_pins` accepts `source_ref, source_pin, target_ref, ta
 
 Select a sheet using its current `native_list_sheets` index. `native_create_sheet` creates an independent sheet. `native_create_subcircuit` creates a child sheet and parent symbol; select the child and add `native_create_hierarchical_port` connectors before wiring the parent. Read the newly returned parent pin names after adding ports.
 
+`native_update_sheet(title, page, width, height)` edits the selected sheet in one transaction. `native_update_hierarchical_port(object_id, name, x, y)` renames/moves an existing child connector and updates its parent symbol. Existing component move/transform/rename tools also apply to subcircuit symbols; use the port updater for its electrical connector name. `native_move_junction(junction_id, x, y)` preserves branch connections and reroutes their ends. Coordinates returned by the native engine reflect grid snapping.
+
+Native root window captions follow the filename after reopening; use `page` for a persistent root page name. Embedded child titles and page names are separate native fields. Sheet renames retain hierarchical component references.
+
+## Free text
+
+Read `state.texts` or `native_list_texts` for independent notes, including IDs, content, insertion coordinates, transform and bounds. Use `native_update_text(object_id, text?, x?, y?)` to change content and/or absolute insertion position while retaining formatting and ID. Omitted fields retain their values; `text: ""` clears the note. Use `native_delete_text(object_id)` or `native_delete_object(object_id)` to remove it. Component reference/value labels and generated wire net labels are separate objects with separate editing tools.
+
+Batch/workflow operations are `updateText {id,text?,x?,y?}`, `deleteText {id}`, `updateSheet {title?,page?,width?,height?}`, `updatePort {id,name?,x?,y?}`, and `moveJunction {id,x,y}`. Text selectors also accept `object_id`. Bind `addText` results and use `{"$ref":"note.id"}` in later edits. Undo, rollback and native reopen can change IDs; use current state after these operations. Save normally to persist all edits.
+
 Embedded model text may be shared by several components. `native_set_model_text` returns affected references across the project; inspect these before treating it as a single-instance change.
 
 ## Fit the saved sheet

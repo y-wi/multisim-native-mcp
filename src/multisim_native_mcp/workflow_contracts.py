@@ -72,7 +72,7 @@ class SelectStage(Stage):
 class EditOperation(Contract):
     operation: Literal['place', 'copy', 'remove', 'move', 'alignPin', 'moveLabel', 'transform', 'route',
                        'autoWire', 'connectTouching', 'wire', 'connectEndpoint', 'reconnect',
-                       'splitWire', 'rename', 'setParameter', 'setModelText', 'addText',
+                       'splitWire', 'rename', 'setParameter', 'setModelText', 'addText', 'updateText', 'deleteText', 'updateSheet', 'moveJunction', 'updatePort',
                        'labelWire', 'replace', 'createSheet', 'createSubcircuit', 'createPort',
                        'sheetTitle', 'sheetSize', 'repairWireGeometry']
     arguments: dict = Field(default_factory=dict)

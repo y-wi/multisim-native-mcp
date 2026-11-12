@@ -19,7 +19,7 @@ def test_large_workflows_and_settings_have_no_workload_ceiling():
     ('move',{'x':100001,'y':-100001}),('setParameter',{'index':1000,'value':1}),
     ('sheetSize',{'width':12000,'height':12000}),('sheetSize',{'width':1,'height':1}),
     ('route',{'points':[{'x':n,'y':0} for n in range(1100)]}),
-    ('transform',{'angle':37.5}),('addText',{'text':'text'*2000}),('rename',{'ref':'电阻一'}),
+    ('transform',{'angle':37.5}),('addText',{'text':'text'*2000,'x':0,'y':0}),('rename',{'ref':'电阻一'}),
 ])
 def test_edits_beyond_old_artificial_limits(op,args):
     EditorService.validate(op,args)

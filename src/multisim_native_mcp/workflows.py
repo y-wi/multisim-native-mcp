@@ -54,7 +54,7 @@ def semantic(value):
     """A drawing revision independent of native allocation addresses and text caches."""
     if isinstance(value, list):
         values=[semantic(v) for v in value]
-        if values and all(isinstance(v,dict) for v in values) and any(all(keys<=v.keys() for v in values) for keys in ({'name'},{'ref','transform'},{'source','target'},{'kind','text'})):
+        if values and all(isinstance(v,dict) for v in values) and any(all(keys<=v.keys() for v in values) for keys in ({'name'},{'ref','transform'},{'source','target'},{'kind','text'},{'text','transform'})):
             values.sort(key=lambda v:json.dumps(v,sort_keys=True))
         return values
     if isinstance(value, dict):
@@ -92,6 +92,11 @@ def remap_bindings(bindings, before, after):
             hits=[q for q in target.get('labels',[]) if (q['kind'],q.get('transform'))==(l['kind'],l.get('transform'))]
             if len(hits)==1:mapping[l['id']]=hits[0]['id']
     def endpoint(e):return (e.get('ref'),e.get('pin'),e['x'],e['y'])
+    for t in before.get('texts',[]):
+        old_ids.add(t['id'])
+        hits=[q for q in after.get('texts',[]) if (q['text'],q['transform'])==(t['text'],t['transform'])]
+        same=[q for q in after.get('texts',[]) if before.get('handle_epoch')==after.get('handle_epoch') and q['id']==t['id']]
+        if len(same or hits)==1:mapping[t['id']]=(same or hits)[0]['id']
     for w in before.get('wires',[]):
         old_ids.add(w['id']);old_ids.update(w[e]['id'] for e in ('source','target'))
         hits=[q for q in after.get('wires',[]) if q['points']==w['points'] and
@@ -134,7 +139,7 @@ class WorkflowManager:
         state['content_revision']=digest(semantic(state))
         state['revision']=digest({'content':state['content_revision'],'epoch':state['handle_epoch'],
                                   'handles':[(c['id'],[p['id'] for p in c['pins']]) for c in state['components']],
-                                  'wires':[w['id'] for w in state['wires']]})
+                                  'wires':[w['id'] for w in state['wires']],'texts':[t['id'] for t in state.get('texts',[])]})
         if rebind and self.active and self.record and self.cache:
             self.record['bindings']=remap_bindings(self.record['bindings'],self.cache,state)
         self.cache=state
@@ -148,7 +153,8 @@ class WorkflowManager:
                 old={c['id']:c for c in before['components']};current={c['id']:c for c in state['components']}
                 result={'revision':state['revision'],'changed':True,'full':False,
                         'components':[copy.deepcopy(c) for k,c in current.items() if semantic(c)!=semantic(old.get(k))],
-                        'removed_component_ids':list(old.keys()-current.keys()),'wires':state['wires'],'page':state['page']}
+                        'removed_component_ids':list(old.keys()-current.keys()),'wires':state['wires'],'page':state['page'],
+                        'texts':state.get('texts',[]),'removed_text_ids':list({t['id'] for t in before.get('texts',[])}-{t['id'] for t in state.get('texts',[])})}
             else:result={'revision':state['revision'],'changed':True,'full':True,'state':copy.deepcopy(state)}
             if not include_parameters:
                 for c in result.get('components',result.get('state',{}).get('components',[])):c.pop('parameters',None)

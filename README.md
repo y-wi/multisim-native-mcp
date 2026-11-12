@@ -4,14 +4,14 @@
 
 Create, edit and simulate editable NI Multisim circuits through the Model Context Protocol.
 
-- **Native circuit editing:** components, named-pin wiring, branches, labels, sheets, subcircuits and embedded SPICE models.
+- **Native circuit editing:** components, named-pin wiring, branches, editable free text, labels, sheets, subcircuits and embedded SPICE models.
 - **Direct file saving:** create a circuit at a chosen path or edit an existing `.ms14` file in place. Normal close saves pending changes; backups and recovery checkpoints are managed automatically.
 - **Persistent simulation settings:** configure 19 native analysis profiles and 44 solver options, including time steps, tolerances, integration, convergence, temperature and digital thresholds.
 - **Analysis and measurements:** DC operating point, transient and AC sweeps, RAW/CSV output, frequency, duty cycle, gain, phase and numeric criteria.
 - **Interactive simulation:** start, pause, resume and stop; configure real-time pacing and export actual LED/display states.
 - **Automation and export:** dependent workflows, parameter sweeps, resumable background jobs, PNG/BMP schematics and bilingual reports.
 
-The server provides 77 tools. See the [tool reference](docs/tools.md) for their parameters.
+The server provides 83 tools. See the [tool reference](docs/tools.md) for their parameters.
 
 ## Requirements
 

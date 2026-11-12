@@ -42,12 +42,18 @@
 | `native_connect_endpoints` | source, target, points |
 | `native_reconnect_wire` | wire_id, source, target |
 | `native_add_text` | text, x, y |
+| `native_list_texts` | — |
+| `native_update_text` | object_id, text, x, y |
+| `native_delete_text` | object_id |
+| `native_move_junction` | junction_id, x, y |
 | `native_label_wire` | wire_id, name |
 | `native_list_sheets` | — |
 | `native_select_sheet` | index |
 | `native_create_sheet` | title, page |
+| `native_update_sheet` | title, page, width, height |
 | `native_create_subcircuit` | title, reference, x, y |
 | `native_create_hierarchical_port` | name, x, y |
+| `native_update_hierarchical_port` | object_id, name, x, y |
 | `native_list_projects` | — |
 | `native_edit_batch` | operations, include_state, atomic |
 | `native_undo` | — |
@@ -82,6 +88,14 @@
 
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 参数类型和默认值以 MCP `tools/list` 返回的 schema 为准。
+
+### Text and object updates / 文本与对象修改
+
+`state.texts` and `native_list_texts` expose free-text IDs, content, insertion coordinates, transforms and bounds. `native_update_text` changes supplied content/coordinates in place and retains formatting; an empty string clears content. Delete with `native_delete_text` or `native_delete_object`. These operations support undo, redo and verified source saves.
+
+`native_update_sheet` edits selected-sheet properties. `native_update_hierarchical_port` updates a connector's electrical name/position and its parent symbol; `native_move_junction` preserves branch wires while moving their common endpoint. Existing component tools edit subcircuit symbols; existing wire tools edit routes, names and endpoints. Batch/workflow counterparts: `updateText`, `deleteText`, `updateSheet`, `updatePort`, `moveJunction` (object selectors use `id`, also `object_id` for text).
+
+`state.texts` 与 `native_list_texts` 返回自由文本的 ID、内容、插入坐标、变换和边界。`native_update_text` 原位修改指定内容或坐标，保留格式；空字符串清空内容。`native_delete_text` 或 `native_delete_object` 可删除文本，支持撤销、重做和源文件保存校验。另有图纸属性修改、层级端口改名/移动、保留连线的分支接点移动接口；批处理与工作流同样支持。
 
 ### Shared power references / 同名电源符号
 
