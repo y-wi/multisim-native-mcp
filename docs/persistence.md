@@ -68,7 +68,7 @@ Without `save_to_source`, changes remain in the editable native document: call `
 
 自动连线偏好是软件全局设置，`persist:true` 保存到 Multisim 应用配置并验证，保存位置独立于 `.ms14`。运行中的仿真时间、暂停位置、灯光相位、导出参数、波形文件和 MCP 工作流/实验记录各有其运行时或外部保存位置。标题栏临时渲染开关会被原生加载逻辑覆盖，属于导出渲染选项。用 `native_persistence_capabilities` 可查询所有工具的准确保存归属。
 
-## File editing defaults (0.5.0)
+## File editing defaults (0.5.1)
 
 New circuits are real `.ms14` files in the task workspace from the start. The calling skill/agent resolves the filename from the task context and supplies an absolute `output_path`; the MCP has no global workspace or project-directory configuration. `native_open_circuit` and workflow `mode:open` edit the actual source. A single running Multisim is reused, opening/selecting the requested source while preserving its other projects. Multiple running processes can be selected with `native_attach`.
 

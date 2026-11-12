@@ -27,14 +27,14 @@ The server provides 77 tools. See the [tool reference](docs/tools.md) for their 
 Run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.5.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.5.1/install.ps1 | iex
 ```
 
 Restart Codex to load `multisim_native`. To update an existing installation, download and run the installer with `-Force`:
 
 ```powershell
 $installer = Join-Path $env:TEMP "multisim-native-install.ps1"
-Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.0/install.ps1" -OutFile $installer
+Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.1/install.ps1" -OutFile $installer
 & $installer -Force
 ```
 
@@ -59,7 +59,7 @@ $mcp = Join-Path $env:LOCALAPPDATA "MultisimNativeMCP\bin\multisim-native-mcp.ex
 For source installation, clone this repository and run `.\install.ps1`. To install the wheel directly:
 
 ```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.0/multisim_native_mcp-0.5.0-py3-none-any.whl
+uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.1/multisim_native_mcp-0.5.1-py3-none-any.whl
 multisim-native-mcp configure
 ```
 
@@ -69,8 +69,8 @@ Install the [multisim-native skill](skills/multisim-native/SKILL.md) for circuit
 
 ```powershell
 $skillRoot = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "skills" } else { Join-Path $env:USERPROFILE ".codex\skills" }
-$skillArchive = Join-Path $env:TEMP "multisim-native-skill-0.5.0.zip"
-Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.0/multisim-native-skill-0.5.0.zip" -OutFile $skillArchive
+$skillArchive = Join-Path $env:TEMP "multisim-native-skill-0.5.1.zip"
+Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.1/multisim-native-skill-0.5.1.zip" -OutFile $skillArchive
 Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 ```
 

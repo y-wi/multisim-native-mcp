@@ -117,6 +117,6 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 
 See [persistence ownership](persistence.md) for advanced native settings, source saves, application preferences and external-only capabilities.
 
-Ordinary editing uses native_open_circuit on the actual source and native_create_circuit in the task workspace. Native save/close defaults update that document; recovery files are internal. Native interactive configuration defaults to persist:true. Explicit copy mode is for comparisons only. See [file editing defaults](persistence.md#file-editing-defaults-050).
+Ordinary editing uses native_open_circuit on the actual source and native_create_circuit in the task workspace. Native save/close defaults update that document; recovery files are internal. Native interactive configuration defaults to persist:true. Explicit copy mode is for comparisons only. See [file editing defaults](persistence.md#file-editing-defaults-051).
 
 `native_get_circuit_state` omits parameter metadata by default; pass `include_parameters:true` for indexed parameters. `native_save_source(verify:false)` and same-path `native_save_copy(verify:false)` skip reopen verification while retaining backups and external-change checks. A failed verified save returns structured `differences` with field paths and missing/changed content, plus a diagnostic file path.

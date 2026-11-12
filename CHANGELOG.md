@@ -1,9 +1,14 @@
 # Changelog
 
-## 0.5.0
+## 0.5.1
 
-- Verify persistent wire names and visibility independently of generated node text; report precise save differences.
-- Align batch deletion selectors, support generated net-label removal, honor source-save verification options and clarify placement anchors.
+- Verify persistent wire names and visibility independently of generated node text, and report precise save differences.
+- Unify standalone and batch deletion selectors; support generated net-label removal while retaining its wire.
+- Honor verification options when saving the current source, including workflow saves.
+- Discover running Multisim processes, attach a single existing process when listing projects, and return compact circuit state by default.
+- Clarify placement anchors and return pin offsets relative to the actual anchor.
+
+## 0.5.0
 
 - Edit existing `.ms14` sources directly and create new circuits at a specified filename. Normal save and close retain changes in the current document.
 - Configure and save 19 native analysis profiles and 44 solver options, with independent interactive and analysis settings.

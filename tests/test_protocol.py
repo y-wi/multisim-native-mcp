@@ -11,7 +11,7 @@ def test_installed_package_stdio(tmp_path):
             async with ClientSession(reader,writer,read_timeout_seconds=30) as session:
                 initialized=await session.initialize()
                 assert initialized.server_info.name == 'multisim-native'
-                assert initialized.server_info.version == '0.5.0'
+                assert initialized.server_info.version == '0.5.1'
                 listed=await session.list_tools();names={tool.name for tool in listed.tools}
                 interactive=next(tool for tool in listed.tools if tool.name=='native_configure_interactive')
                 assert {'persist','save_to_source'}<=interactive.input_schema['properties'].keys()
@@ -60,5 +60,5 @@ def test_connection_check_does_not_change_existing_experiment_records(tmp_path,m
     record.write_bytes(raw)
     monkeypatch.setenv('MULTISIM_NATIVE_DATA_DIR',str(tmp_path))
     result=asyncio.run(check_connection())
-    assert result['tool_count']==77 and result['server_version']=='0.5.0'
+    assert result['tool_count']==77 and result['server_version']=='0.5.1'
     assert record.read_bytes()==raw
