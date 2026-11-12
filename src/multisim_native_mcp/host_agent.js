@@ -209,23 +209,7 @@ function save(args) {
   native('Library.dll','??1CPathString@@QAE@XZ','void',['pointer'])(value);
   return {nativeResult:result,errorCode:error.readS32(),path:args.path,geometry_repair};
 }
-function wire(args) {
-  const source=component(args.source.ref),target=component(args.target.ref);
-  const s=source.pins.find(p=>p.name===args.source.pin),t=target.pins.find(p=>p.name===args.target.pin);
-  if(!s||!t)throw new Error('Named pin does not exist');
-  if(args.points)for(const [point,pin] of [[args.points[0],s],[args.points.at(-1),t]])if(point.x!==pin.x||point.y!==pin.y)throw new Error('Wire path endpoints must match actual pin coordinates');
-  if(s.id===t.id)throw new Error('Cannot wire a pin to itself');
-  const existing=wires().wires.find(w=>(w.source.id===s.id&&w.target.id===t.id)||(w.source.id===t.id&&w.target.id===s.id));
-  if(existing) {
-    if(args.points)setWirePoints(ptr(existing.id),args.points);
-    else if(existing.points[0].x!==s.x||existing.points[0].y!==s.y||existing.points.at(-1).x!==t.x||existing.points.at(-1).y!==t.y)
-      rerouteNativeWire({id:existing.id});
-    return {...wires().wires.find(w=>w.id===existing.id),alreadyConnected:true};
-  }
-  const w=connectNative(ptr(s.id),ptr(t.id),args.points);
-  return {...wires().wires.find(item=>item.id===w.toString()),alreadyConnected:false,
-    routing_engine:args.points?'specified':wiringOptions().autowire_on_connection&&nativeRouteInBounds(s,t)?'multisim-native':'orthogonal'};
-}
+function wire(args) { return connectEndpoint(args); }
 function wires() {
   const d=diagram(),pins=new Map();
   for(const c of components().components)for(const p of c.pins)pins.set(p.id,{component_id:c.id,ref:c.ref,pin:p.name});

@@ -20,6 +20,7 @@ from .verification import decode_display, verify
 from .waveforms import parse_raw
 from .workflow_contracts import ComponentRequest, WorkflowPlan
 from .workflow_values import resolve
+from .identity import identity_changes
 
 
 class NeedsInput(RuntimeError):
@@ -75,6 +76,7 @@ def remap_bindings(bindings, before, after):
     for c in after.get('components',[]):grouped.setdefault(key(c),[]).append(c)
     for c in before.get('components',[]):
         old_ids.add(c['id']);old_ids.update(p['id'] for p in c['pins'])
+        old_ids.update(l['id'] for l in c.get('labels',[]))
         same_epoch=before.get('handle_epoch')==after.get('handle_epoch')
         candidates=[q for q in after.get('components',[]) if same_epoch and q['id']==c['id'] and
                     (q['ref'],q.get('local_ref'),q.get('library'))==(c['ref'],c.get('local_ref'),c.get('library'))]
@@ -88,7 +90,6 @@ def remap_bindings(bindings, before, after):
             hits=[q for q in target['pins'] if (q['name'],q['x'],q['y'])==(p['name'],p['x'],p['y'])]
             if len(hits)==1:mapping[p['id']]=hits[0]['id']
         for l in c.get('labels',[]):
-            old_ids.add(l['id'])
             hits=[q for q in target.get('labels',[]) if (q['kind'],q.get('transform'))==(l['kind'],l.get('transform'))]
             if len(hits)==1:mapping[l['id']]=hits[0]['id']
     def endpoint(e):return (e.get('ref'),e.get('pin'),e['x'],e['y'])
@@ -196,7 +197,7 @@ class WorkflowManager:
         with self.host.lock:
             session=str(self.host.working)
             if self.catalog_session!=session or refresh:self.catalog={};self.catalog_session=session
-            missing=[r for r in requests if digest(r) not in self.catalog];issues=[];values=[]
+            missing=[r for r in requests if digest(r) not in self.catalog];issues=[];values=[];transition={'handles_invalidated':False}
             if missing:
                 snapshot=self.host.checkpoint();before=self._capture();options=self.host.call('wiringOptions')
                 try:
@@ -221,11 +222,14 @@ class WorkflowManager:
                     self.host.restore(snapshot)
                     self.host.call('wiringOptions',{'connect_touching':options['connect_touching']})
                     self.cache=before;self._capture()
+                    transition={'handles_invalidated':True,'handle_generation':getattr(self.host,'handle_generation',0),
+                                'state':self.cache,**identity_changes(before,self.cache)}
             for r in requests:
                 if digest(r) in self.catalog:values.append(self.catalog[digest(r)])
-            if issues:raise NeedsInput('Component preparation requires library choices',{'components':values,'issues':issues})
-            return {'components':values,'prepared':len(values),'cache_hits':len(requests)-len(missing),
-                    'revision':self.cache['revision'] if self.cache else None}
+            result={'components':values,'prepared':len(values),'cache_hits':len(requests)-len(missing),
+                    'revision':self.cache['revision'] if self.cache else None,**transition}
+            if issues:raise NeedsInput('Component preparation requires library choices',{**result,'issues':issues})
+            return result
 
     def start(self,plan,wait_timeout=30):
         self._wait_value(wait_timeout)

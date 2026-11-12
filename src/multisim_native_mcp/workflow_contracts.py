@@ -70,6 +70,12 @@ class SelectStage(Stage):
 
 
 class EditOperation(Contract):
+    @model_validator(mode='before')
+    @classmethod
+    def consistent_arguments(cls,value):
+        from .edit_contracts import normalize_edit
+        return normalize_edit(value)
+
     operation: Literal['place', 'copy', 'remove', 'move', 'alignPin', 'moveLabel', 'transform', 'route',
                        'autoWire', 'connectTouching', 'wire', 'connectEndpoint', 'reconnect',
                        'splitWire', 'rename', 'setParameter', 'setModelText', 'addText', 'updateText', 'deleteText', 'updateSheet', 'moveJunction', 'updatePort',

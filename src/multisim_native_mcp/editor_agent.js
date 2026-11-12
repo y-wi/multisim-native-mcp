@@ -143,6 +143,7 @@ function removeObject(args) {
   let id=args.id||args.object_id;const ref=args.ref||args.component_ref;
   if(ref)id=component(ref).id;
   if(!enumerate().objects.some(c=>c.id===id))throw new Error('Object does not exist on the selected sheet');
+  const nativeType=rtti(ptr(id)).name,hierarchicalPort=/^\.\?AVCIIT(?:Bus)?HierConnector@@$/.test(nativeType);
   if(rtti(ptr(id)).name==='.?AVCODNodeTextComp@@'){
     const owners=wires().wires.filter(w=>method('SCH_CAP.dll','?GetNodeText@CIITLinkComp@@','pointer',['pointer'])(ptr(w.id)).equals(ptr(id)));
     for(const wire of owners){
@@ -152,17 +153,19 @@ function removeObject(args) {
     }
     method('Od101dll.dll','?DeleteComponent@CODDiagram@@','void',['pointer','pointer','pointer','int'])(diagram().graph,treeInstance(),ptr(id),0);
     if(enumerate().objects.some(c=>c.id===id))throw new Error('Native generated net-label deletion failed: '+id);
-    return {deleted:true,id,generated_net_label:true,affected_wire_ids:owners.map(w=>w.id)};
+    return {deleted:true,id,generated_net_label:true,affected_wire_ids:owners.map(w=>w.id),topology_changed:true};
   }
   const symbol=components().components.find(c=>c.id===id);
   if(symbol)for(const wire of attachedWires(symbol,wires().wires))removeObject({id:wire.id});
   const list=Memory.alloc(256);
   method('Od101dll.dll','??0CODCompList@@QAE@PAVCODComponent@@@Z','pointer',['pointer','pointer'])(list,ptr(id));
   try {
-    method('SCH_CAP.dll','?DoDelete@CIITDiagram@@QAEHPAVCTreeInstance@@PAVCODCompList@@_N2222PAVCIITView@@PAVCNetSplitInfo@@@Z','int',['pointer','pointer','pointer',...Array(5).fill('uint8'),'pointer','pointer'])(diagram().graph,treeInstance(),list,0,1,0,0,0,activateSheet(),ptr(0));
+    // The fourth boolean updates CNKNodeInfo. Hierarchical port deletion needs
+    // this native bookkeeping as well as removing its graphics and parent pins.
+    method('SCH_CAP.dll','?DoDelete@CIITDiagram@@QAEHPAVCTreeInstance@@PAVCODCompList@@_N2222PAVCIITView@@PAVCNetSplitInfo@@@Z','int',['pointer','pointer','pointer',...Array(5).fill('uint8'),'pointer','pointer'])(diagram().graph,treeInstance(),list,0,1,0,hierarchicalPort?1:0,0,activateSheet(),ptr(0));
   } finally {method('Od101dll.dll','??1CODCompList@@UAE@XZ','void',['pointer'])(list);}
   if(enumerate().objects.some(c=>c.id===id))throw new Error('Native deletion did not remove '+id+' ('+rtti(ptr(id)).name+'); deleting a generated net label requires changing its wire label settings');
-  return {deleted:true,id};
+  return {deleted:true,id,topology_changed:nativeType!=='.?AVCODTextComp@@',...(hierarchicalPort?{hierarchical_port:true,node_info_updated:true}:{})};
 }
 function updateAttachedGeometry(id,attached) {
   const c=component(id),pins=c.pins;
@@ -591,7 +594,7 @@ function updatePort(args) {
     if(component(before.id).local_ref!==args.name)throw new Error('Native hierarchical connector rename failed');
   }
   const moved=args.x!==undefined||args.y!==undefined?move({ref:before.id,dx:(args.x??before.transform[4])-before.transform[4],dy:(args.y??before.transform[5])-before.transform[5]}):null;
-  return {component:component(before.id),before,movement:moved};
+  return {component:component(before.id),before,movement:moved,topology_changed:(args.name!==undefined&&args.name!==before.local_ref)||!!moved?.topology_changed};
 }
 function sheetTitle(args) {
   if(!method('DrwEngine.dll','?GetParent@CTreeInstance@@','pointer',['pointer'])(treeInstance()).isNull())return updateSheet({title:args.title,page:args.title});
@@ -960,12 +963,21 @@ function moveJunction(args) {
 }
 function connectEndpoint(args) {
   const resolve=e=>{
-    if(e.ref){const c=component(e.ref),p=c.pins.find(p=>p.name===e.pin);if(!p)throw new Error('Pin not found');return ptr(p.id);}
-    if(!enumerate().objects.some(o=>o.id===e.junction_id&&/CODPinComp/.test(o.name)))throw new Error('Junction ID not found');return ptr(e.junction_id);
+    if(e.ref){const c=component(e.ref),p=c.pins.find(p=>p.name===e.pin);if(!p)throw new Error('Pin '+JSON.stringify(e.pin)+' does not exist on '+c.ref+'; available pins: '+c.pins.map(p=>p.name).join(', '));return ptr(p.id);}
+    if(!enumerate().objects.some(o=>o.id===e.junction_id&&/CODPinComp/.test(o.name)))throw new Error('Junction does not exist on the selected sheet: '+e.junction_id);return ptr(e.junction_id);
   };
-  const object=connectNative(resolve(args.source),resolve(args.target),args.points);
+  const source=resolve(args.source),target=resolve(args.target);
+  if(source.equals(target))throw new Error('Cannot wire an endpoint to itself');
+  const existing=wires().wires.find(w=>(w.source.id===source.toString()&&w.target.id===target.toString())||(w.target.id===source.toString()&&w.source.id===target.toString()));
+  if(existing){
+    if(args.points)routeWire({id:existing.id,points:existing.source.id===source.toString()?args.points:args.points.slice().reverse()});
+    else if(!routeEndsMatch(existing))rerouteNativeWire({id:existing.id});
+    return {...wires().wires.find(w=>w.id===existing.id),alreadyConnected:true};
+  }
+  const object=connectNative(source,target,args.points);
   if(args.points)routeWire({id:object.toString(),points:args.points});
-  return wires().wires.find(w=>w.id===object.toString());
+  return {...wires().wires.find(w=>w.id===object.toString()),alreadyConnected:false,
+    routing_engine:args.points?'specified':wiringOptions().autowire_on_connection&&nativeRouteInBounds(connectorGeometry(source),connectorGeometry(target))?'multisim-native':'orthogonal'};
 }
 function reconnectWire(args) {
   const old=wires().wires.find(w=>w.id===args.id);if(!old)throw new Error('Wire not found');

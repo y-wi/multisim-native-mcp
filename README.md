@@ -11,7 +11,7 @@ Create, edit and simulate editable NI Multisim circuits through the Model Contex
 - **Interactive simulation:** start, pause, resume and stop; configure real-time pacing and export actual LED/display states.
 - **Automation and export:** dependent workflows, parameter sweeps, resumable background jobs, PNG/BMP schematics and bilingual reports.
 
-The server provides 83 tools. See the [tool reference](docs/tools.md) for their parameters.
+The default catalog provides 81 tools, with older aliases retained for compatible calls. See the [tool reference](docs/tools.md) for preferred entry points and parameters.
 
 ## Requirements
 

@@ -19,9 +19,13 @@ Use `multisim_native` for editable Multisim objects and native simulation. Tool 
 
 For a complete circuit task, prefer one `native_run_workflow` plan for the known stages; read [references/workflows.md](references/workflows.md) for schemas and examples. For a local adjustment use the corresponding tool or edit batch. Reuse returned state and prepared metadata rather than querying all objects between every operation.
 
+Use `native_connect_endpoints` for explicit pin/junction connections; `native_connect_touching` detects physical contacts already present. Use `native_delete_object` to remove components, wires, junctions or free text. Batch/workflow selectors accept the same `component_ref`, `wire_id` and `object_id` names as standalone tools, plus older `ref`/`id` aliases. Operation names may use the standalone name with or without `native_`, or existing camelCase names.
+
+Default responses show primary/named value slots and `parameter_count`; they retain complete native data internally. Read all slots with `native_get_parameters` or an applicable tool's `include_parameters: true`. Prepare unfamiliar parts with `include_parameters: true` when slot metadata is needed.
+
 Group related edits, bind results and refer to actual returned pins/IDs. Prepared pin offsets use the explicitly returned center anchor; placement defaults to origin. Use `anchor: center` to apply prepared center offsets, or actual returned pins/placement.pin_offsets when using another anchor. Prepare unfamiliar library types when their pin names or parameter slots are uncertain. Known parts can be placed directly. Include analysis and numeric criteria when the task calls for electrical verification; use saved native readback for persistence verification. A successful save does not need another manual close/open cycle. Inspect the requested export for visual acceptance.
 
-Use `native_workflow_status` waits for ongoing work. Failed or interrupted work is unfinished; inspect the failed stage, correct the cause and resume its tail. Rollback, undo, redo and controlled native refreshes can invalidate IDs; use returned current state or workflow bindings. Internal checkpoints preserve the actual workspace/source identity during recovery.
+Use `native_workflow_status` waits for ongoing work. Failed or interrupted work is unfinished; inspect the failed stage, correct the cause and resume its tail. Netlist refresh, preparation, undo and redo report `handles_invalidated`, `id_map`, `unresolved_ids` and current state. Apply returned ID mappings to retained handles; reselect unresolved objects. Workflow bindings rebind automatically. Rollback errors also return fresh state. Parameter/layout/text edits and repeated connections avoid unnecessary topology refreshes. Internal checkpoints preserve the actual workspace/source identity during recovery.
 
 The MCP imposes no task runtime, operation-count, coordinate-area, sample-count or image-pixel quotas. Use `max_runtime` only for a user-requested deadline; it is disabled by default. Status waits and pagination are response options, not execution ceilings. Native data types and actual simulator/allocator failures still apply.
 
@@ -34,7 +38,7 @@ The MCP imposes no task runtime, operation-count, coordinate-area, sample-count 
 
 For detailed editing/geometry contracts read [references/editing.md](references/editing.md); for analysis and display verification read [references/analysis.md](references/analysis.md).
 
-Free text is returned in `state.texts` or `native_list_texts`. Edit its content/absolute insertion position with `native_update_text`, or remove it with `native_delete_text` / `native_delete_object`; retain the existing object when revising a note. Use `native_update_sheet` for selected-sheet properties, `native_update_hierarchical_port` for a connector's electrical name/position and `native_move_junction` for a branch point with attached wires. These edits support normal source saves and undo.
+Free text is returned in `state.texts` or `native_list_texts`. Edit its content/absolute insertion position with `native_update_text`, or remove it with `native_delete_object`; retain the existing object when revising a note. Use `native_update_sheet` for selected-sheet properties, `native_update_hierarchical_port` for a connector's electrical name/position and `native_move_junction` for a branch point with attached wires. Deleting hierarchical ports updates native node information and parent connections. These edits support normal source saves and undo.
 
 ## Persistent configuration in 0.5.1
 

@@ -1,9 +1,10 @@
 """STDIO MCP endpoint. stdout is reserved for JSON-RPC."""
 from __future__ import annotations
 
-from mcp.server.mcpserver import MCPServer
+from .catalog import NativeMCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from functools import wraps
+import inspect
 from pathlib import Path
 import re
 import json
@@ -16,6 +17,7 @@ from .contracts import MeasurementRequest,AcceptanceCriterion,normalize_measurem
 from .workflow_contracts import ComponentRequest,WorkflowPlan,WorkflowStage
 from .workflows import WorkflowManager,NeedsInput
 from .settings import SimulationSettingChange,Scalar
+from .response_views import compact_result
 
 host = EditorService()
 experiments = ExperimentManager(host)
@@ -23,6 +25,7 @@ workflows = WorkflowManager(host)
 
 
 def checked(function):
+    signature=inspect.signature(function)
     @wraps(function)
     def execute(*args, **kwargs):
         try:
@@ -35,18 +38,23 @@ def checked(function):
                 'native_workflow_status',
                 'native_read_waveform','native_measure_waveform','native_verify_waveform','native_decode_seven_segment'}:
                 raise RuntimeError('A native experiment is running; inspect or cancel it first')
-            return function(*args, **kwargs)
+            result=function(*args, **kwargs)
+            options=signature.bind(*args,**kwargs).arguments
+            full=function.__name__=='native_get_parameters' or options.get('include_parameters') or options.get('detail')
+            return result if full else compact_result(result)
         except (NativeEditError,NativeSaveError) as error:
-            return CallToolResult(isError=True,structuredContent=error.details,
-                content=[TextContent(type='text',text=json.dumps(error.details,ensure_ascii=False))])
+            details={**error.details}
+            if 'state' in details:details['state']=compact_result(details['state'])
+            return CallToolResult(isError=True,structuredContent=details,
+                content=[TextContent(type='text',text=json.dumps(details,ensure_ascii=False))])
         except NeedsInput as error:
-            detail={'error':str(error),'needs_input':True,'details':error.result}
+            detail={'error':str(error),'needs_input':True,'details':compact_result(error.result)}
             return CallToolResult(isError=True,structuredContent=detail,
                 content=[TextContent(type='text',text=json.dumps(detail,ensure_ascii=False))])
         except Exception as error:
             raise ToolError(str(error)) from error
     return execute
-server = MCPServer('multisim-native', version=__version__,
+server = NativeMCPServer('multisim-native', version=__version__,
                    instructions='Create native circuits in the task workspace and edit existing source files directly. '
                    'Use native_open_circuit or native_create_circuit with explicit file paths from the task context. '
                    'Use native_open_copy only for requested comparisons or diagnostics. Save to the current source; recovery files are internal. '
@@ -54,7 +62,11 @@ server = MCPServer('multisim-native', version=__version__,
                    'Use result bindings instead of intermediate ID queries and wait with native_workflow_status rather than frequent polling. '
                    'Read exact pin names before wiring; save results before closing. '
                    'For repeated power references, select a current component ID from the circuit state. '
-                   'Undo, redo and netlist refresh can invalidate memory IDs; reread objects afterward. '
+                   'Use native_connect_endpoints for pin/junction wiring; native_connect_touching detects physical contacts. '
+                   'Delete any object with native_delete_object; native_update_text edits free text in place. '
+                   'Batch/workflow edits accept standalone parameter names such as component_ref, wire_id and object_id; id/ref remain aliases. '
+                   'Responses omit unused parameter slots by default; native_get_parameters or include_parameters=true returns all slots. '
+                   'Undo, redo and netlist refresh report handle invalidation and ID remapping; workflows rebind objects automatically. '
                    'Read sheet bounds from the initial state or native_get_circuit_state before placing components. '
                    'Coordinates use top-left sheet units, 96 per inch, and may snap to grid. '
                    'Use individual tools or native_edit_batch for local adjustments and consume returned state. '
@@ -64,8 +76,8 @@ server = MCPServer('multisim-native', version=__version__,
 
 @server.tool()
 @checked
-def native_prepare_components(components: list[ComponentRequest], refresh: bool = False) -> dict:
-    """Prepare 1-50 library types together in the current session. Resolve exact candidates, probe actual pins and parameter slots, cache session metadata and restore the original drawing. Ambiguities return one consolidated issue list. Probe restoration invalidates native handles; consume the returned revision or use workflow result bindings."""
+def native_prepare_components(components: list[ComponentRequest], refresh: bool = False, include_parameters: bool = False) -> dict:
+    """Prepare library types together in the current session. Resolve exact candidates, probe actual pins and parameter slots, cache session metadata and restore the original drawing. Default returns primary/named value slots; include_parameters=true returns every native slot. Ambiguities return one consolidated issue list. Probe restoration reports invalidated native handles; use workflow bindings across refreshes."""
     return workflows.prepare(components,refresh)
 
 
@@ -125,16 +137,16 @@ def native_diagnostics() -> dict:
 
 @server.tool()
 @checked
-def native_open_circuit(source_path: str) -> dict:
+def native_open_circuit(source_path: str, include_parameters: bool = False) -> dict:
     """Open an existing .ms14 file directly for editing. Reuse a single running Multisim, selecting/opening the file while preserving other documents. Normal save/close saves this file. Backups and checkpoints stay internal."""
-    return {**host.open_circuit(source_path),'state':host.call('circuitState',{'include_parameters':True})}
+    return {**host.open_circuit(source_path),'state':host.call('circuitState',{'include_parameters':include_parameters})}
 
 
 @server.tool()
 @checked
-def native_open_copy(source_path: str,output_path: str | None = None) -> dict:
+def native_open_copy(source_path: str,output_path: str | None = None, include_parameters: bool = False) -> dict:
     """Create an explicit comparison copy. output_path is an absolute unused .ms14 filename; when omitted the copy is saved beside the source. Ordinary editing uses native_open_circuit. Normal close saves only this copy."""
-    return {**host.open_copy(source_path,output_path),'state':host.call('circuitState',{'include_parameters':True})}
+    return {**host.open_copy(source_path,output_path),'state':host.call('circuitState',{'include_parameters':include_parameters})}
 
 
 @server.tool()
@@ -171,7 +183,7 @@ def native_list_wires(component_ref: str | None = None) -> dict:
 @server.tool()
 @checked
 def native_connect_pins(source_ref: str, source_pin: str, target_ref: str, target_pin: str) -> dict:
-    """Create a real native electrical wire between exact named pins through CreateWireBase. Idempotent for a direct existing wire."""
+    """Compatibility alias for native_connect_endpoints using flat named-pin selectors. Uses the same idempotent connection engine."""
     return host.edit('wire', {'source': {'ref': source_ref, 'pin': source_pin},
                               'target': {'ref': target_ref, 'pin': target_pin}})
 
@@ -263,7 +275,7 @@ def native_search_library(query: str, limit: int | None = 20, family: str = '', 
 
 @server.tool()
 @checked
-def native_place_component(name: str, x: int, y: int, reference: str | None = None, family: str = '', group: str = '', manufacturer: str = '',parameters: list[dict] | None = None,anchor: Literal['origin','center','pin'] = 'origin',pin: str | None = None) -> dict:
+def native_place_component(name: str, x: int, y: int, reference: str | None = None, family: str = '', group: str = '', manufacturer: str = '',parameters: list[dict] | None = None,anchor: Literal['origin','center','pin'] = 'origin',pin: str | None = None,include_parameters: bool = False) -> dict:
     """Place a real library component. anchor=origin preserves the library graphic origin (not symbol center); center anchors the symbol body, pin anchors the exact named pin. Placement returns requested/actual anchor coordinates and body bounds; grid snapping applies. Read returned pins before routing."""
     args={'name':name,'x':x,'y':y,'family':family,'group':group,'manufacturer':manufacturer,'anchor':anchor}
     if pin is not None:args['pin']=pin
@@ -364,7 +376,7 @@ def native_split_wire(wire_id: str, x: int, y: int) -> dict:
 @server.tool()
 @checked
 def native_connect_endpoints(source: dict, target: dict, points: list[dict[str,int]] | None = None) -> dict:
-    """Connect {ref,pin} or {junction_id} endpoints. Optional route must end at actual connector coordinates."""
+    """Preferred explicit wiring tool. Connect {component_ref,pin} (ref also accepted) or {junction_id} endpoints. Repeated connections reuse the existing wire. Optional route must end at actual connector coordinates. Use native_connect_touching to discover physical contacts."""
     return host.edit('connectEndpoint',{'source':source,'target':target,**({'points':points} if points else {})})
 
 
@@ -399,7 +411,7 @@ def native_update_text(object_id: str, text: str | None = None, x: int | None = 
 @server.tool()
 @checked
 def native_delete_text(object_id: str) -> dict:
-    """Delete one independent free text object by its current ID. Supports undo and verified source save. native_delete_object also accepts free text IDs."""
+    """Compatibility free-text deletion alias. Prefer native_delete_object for components, wires, junctions and free text. Supports undo and verified source save."""
     return host.edit('deleteText',{'id':object_id})
 
 
@@ -475,29 +487,29 @@ def native_list_projects() -> dict:
 
 @server.tool()
 @checked
-def native_edit_batch(operations: list[dict], include_state: bool = True, atomic: bool = True) -> dict:
-    """Apply a nonempty batch of edits. Each item has operation and arguments. Default atomic=true rolls back this entire batch on failure, preserving earlier calls. Set atomic=false to keep completed operations and roll back only the failed operation. Failures return an error with rollback_scope, handles_invalidated and fresh state. Operations include wire, move, moveLabel, place, copy, remove, transform, route, autoWire (id), connectTouching (optional refs), setParameter, rename, addText, updateText, deleteText, updatePort, moveJunction, updateSheet, labelWire, splitWire, connectEndpoint, reconnect, replace, createSheet and sheetSize (positive native width/height)."""
+def native_edit_batch(operations: list[dict], include_state: bool = True, atomic: bool = True, include_parameters: bool = False) -> dict:
+    """Apply nonempty edits as one undo unit. Each item has operation and arguments. Use standalone operation names with/without native_ and the same selector names: component_ref, wire_id, object_id, junction_id; existing camelCase operations and ref/id aliases remain accepted. Examples: route_wire {wire_id,points}, update_text {object_id,text}, connect_endpoints {source,target}. atomic=true rolls back the batch; false preserves completed steps. Failures report rollback scope and fresh state. Default returns primary/named parameter slots; include_parameters=true returns all native slots."""
     return host.batch(operations,include_state,atomic)
 
 
 @server.tool()
 @checked
 def native_undo() -> dict:
-    """Restore the previous native checkpoint. Object IDs change; reread components and wires."""
+    """Restore the previous native checkpoint. Return current state, handle_generation, changed IDs in id_map and unresolved_ids. Apply mappings to retained handles; workflow bindings rebind automatically."""
     return host.history('undo')
 
 
 @server.tool()
 @checked
 def native_redo() -> dict:
-    """Reapply an undone checkpoint using native save/reopen; reread object IDs afterward."""
+    """Reapply an undone checkpoint using native save/reopen. Return current state, handle_generation, id_map and unresolved_ids for subsequent edits."""
     return host.history('redo')
 
 
 @server.tool()
 @checked
 def native_check_netlist() -> dict:
-    """Generate the SPICE source used by native analysis. Refresh changed topology only; handles_invalidated then includes the refreshed state. Layout and parameter edits keep handles stable. A resistor value of zero in this source is an actual zero resistance."""
+    """Generate the SPICE source used by native analysis. Refresh changed topology only; handles_invalidated=true returns compact current state, handle_generation, id_map and unresolved_ids. Apply mappings to retained handles; workflows rebind automatically. Layout, parameter and free-text edits and repeated connections keep handles stable. A zero resistor value in this source is an actual zero resistance."""
     return host.netlist()
 
 

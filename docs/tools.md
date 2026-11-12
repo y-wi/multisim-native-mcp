@@ -1,22 +1,25 @@
 # Tool reference / 工具参考
 
+Use `native_connect_endpoints` for explicit pin/junction wiring, `native_connect_touching` to detect physical contacts, and `native_delete_object` to delete any supported object. The default catalog lists 81 tools; two callable compatibility aliases are documented below.
+
+明确指定引脚或接点时使用 `native_connect_endpoints`；检查物理接触使用 `native_connect_touching`；删除对象统一使用 `native_delete_object`。默认工具列表为 81 项，下方另列两个可继续调用的兼容别名。
+
 | Tool | Parameters |
 | --- | --- |
 | `native_run_workflow` | plan, wait_timeout |
 | `native_workflow_status` | workflow_id, wait_timeout, detail |
 | `native_control_workflow` | workflow_id, action, replacement_steps, wait_timeout, expected_revision |
-| `native_prepare_components` | components, refresh |
+| `native_prepare_components` | components, refresh, include_parameters |
 | `native_session_changes` | since_revision, include_parameters |
 | `native_runtime_status` | — |
 | `native_persistence_capabilities` | — |
 | `native_diagnostics` | — |
-| `native_open_circuit` | source_path |
-| `native_open_copy` | source_path, output_path (explicit comparison) |
+| `native_open_circuit` | source_path, include_parameters |
+| `native_open_copy` | source_path, output_path (explicit comparison), include_parameters |
 | `native_list_components` | — |
 | `native_get_circuit_state` | include_parameters |
 | `native_move_component_label` | component_ref, x, y, kind |
 | `native_list_wires` | component_ref |
-| `native_connect_pins` | source_ref, source_pin, target_ref, target_pin |
 | `native_move_component` | component_ref, dx, dy |
 | `native_save_copy` | output_path, overwrite, allow_off_page, verify |
 | `native_save_source` | allow_off_page, verify |
@@ -26,7 +29,7 @@
 | `native_attach` | pid, project_index |
 | `native_create_circuit` | output_path (required absolute filename), title |
 | `native_search_library` | query, limit, family, group |
-| `native_place_component` | name, x, y, reference, family, group, manufacturer, parameters, anchor, pin |
+| `native_place_component` | name, x, y, reference, family, group, manufacturer, parameters, anchor, pin, include_parameters |
 | `native_copy_component` | component_ref, new_ref, x, y |
 | `native_delete_object` | object_id, component_ref |
 | `native_get_parameters` | component_ref |
@@ -44,7 +47,6 @@
 | `native_add_text` | text, x, y |
 | `native_list_texts` | — |
 | `native_update_text` | object_id, text, x, y |
-| `native_delete_text` | object_id |
 | `native_move_junction` | junction_id, x, y |
 | `native_label_wire` | wire_id, name |
 | `native_list_sheets` | — |
@@ -55,7 +57,7 @@
 | `native_create_hierarchical_port` | name, x, y |
 | `native_update_hierarchical_port` | object_id, name, x, y |
 | `native_list_projects` | — |
-| `native_edit_batch` | operations, include_state, atomic |
+| `native_edit_batch` | operations, include_state, atomic, include_parameters |
 | `native_undo` | — |
 | `native_redo` | — |
 | `native_check_netlist` | — |
@@ -89,13 +91,34 @@
 Use the schemas returned by MCP `tools/list` for parameter types and defaults.
 参数类型和默认值以 MCP `tools/list` 返回的 schema 为准。
 
+### Consistent editing / 统一编辑方式
+
+Batch and workflow operations accept standalone names with or without `native_` (for example, `route_wire`), and the same selectors: `component_ref`, `wire_id`, `object_id` and `junction_id`. Existing camelCase operation names and `ref`/`id` arguments remain accepted. Conflicting selectors are rejected before editing. `wire` and explicit endpoint connections share one idempotent engine; repeating a connection reuses its wire.
+
+Default placement, preparation and batch responses show primary/named parameter slots. `parameter_count` and `parameters_complete` describe metadata coverage. Use `include_parameters: true` on those tools or `native_get_parameters` for all slots. Selected parameter edits, experiment inputs and measured results retain their values.
+
+Native refresh, undo, redo and preparation report `handles_invalidated`, `handle_generation`, `id_map`, `unresolved_ids` and current state when handles change. Replace a retained ID with its `id_map` value when present; reselect IDs listed in `unresolved_ids`. Workflows rebind their result references automatically. Parameter/layout/text edits and repeated connections avoid unnecessary native topology refreshes. Source-save errors identify the object, changed field and expected/actual values; full diagnostics remain available through the reported file path.
+
+批处理和工作流可直接使用独立工具的操作名及选择器，保留旧的 camelCase、`ref`/`id` 写法。默认仅返回主要或已命名的参数槽，完整参数通过 `include_parameters: true` 或 `native_get_parameters` 读取。原生刷新会返回 ID 映射和无法匹配的 ID，工作流绑定自动更新；保存差异会指出对象、字段及前后值。
+
+### Compatibility aliases / 兼容别名
+
+These names remain callable but are omitted from the default catalog:
+
+| Alias | Parameters | Preferred tool |
+| --- | --- | --- |
+| `native_connect_pins` | source_ref, source_pin, target_ref, target_pin | `native_connect_endpoints` |
+| `native_delete_text` | object_id | `native_delete_object` |
+
+`native_persistence_capabilities` reports both the listed `tool_count` and `registered_tool_count`; each compatibility entry names its preferred tool.
+
 ### Text and object updates / 文本与对象修改
 
-`state.texts` and `native_list_texts` expose free-text IDs, content, insertion coordinates, transforms and bounds. `native_update_text` changes supplied content/coordinates in place and retains formatting; an empty string clears content. Delete with `native_delete_text` or `native_delete_object`. These operations support undo, redo and verified source saves.
+`state.texts` and `native_list_texts` expose free-text IDs, content, insertion coordinates, transforms and bounds. `native_update_text` changes supplied content/coordinates in place and retains formatting; an empty string clears content. Delete with `native_delete_object`. These operations support undo, redo and verified source saves. Hierarchical port deletion updates its native node information and parent connections before saving.
 
 `native_update_sheet` edits selected-sheet properties. `native_update_hierarchical_port` updates a connector's electrical name/position and its parent symbol; `native_move_junction` preserves branch wires while moving their common endpoint. Existing component tools edit subcircuit symbols; existing wire tools edit routes, names and endpoints. Batch/workflow counterparts: `updateText`, `deleteText`, `updateSheet`, `updatePort`, `moveJunction` (object selectors use `id`, also `object_id` for text).
 
-`state.texts` 与 `native_list_texts` 返回自由文本的 ID、内容、插入坐标、变换和边界。`native_update_text` 原位修改指定内容或坐标，保留格式；空字符串清空内容。`native_delete_text` 或 `native_delete_object` 可删除文本，支持撤销、重做和源文件保存校验。另有图纸属性修改、层级端口改名/移动、保留连线的分支接点移动接口；批处理与工作流同样支持。
+`state.texts` 与 `native_list_texts` 返回自由文本的 ID、内容、插入坐标、变换和边界。`native_update_text` 原位修改指定内容或坐标，保留格式；空字符串清空内容。`native_delete_object` 删除文本，支持撤销、重做和源文件保存校验。层级端口删除会同步原生节点信息及父图纸连接。另有图纸属性修改、层级端口改名/移动、保留连线的分支接点移动接口；批处理与工作流同样支持。
 
 ### Shared power references / 同名电源符号
 
@@ -117,9 +140,9 @@ Synchronize symbol and junction graphics with grid-snapped electrical connectors
 
 ### Interactive simulation / 交互仿真
 
-`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` writes native document settings by default; persist:false selects temporary overrides. Select steps that resolve the fastest relevant signal and verify the result. `interactive_options.last_start` reports effective temporary startup parameters. Add `persist: true` to write native document settings, then `native_save_copy` to retain them. Add both `persist: true` and `save_to_source: true` to save the source file immediately: the server backs up the original, checks external changes, saves natively and independently reopens to verify all simulation settings. Ordinary GUI starts after reopening use the saved values. `saved_to_file: false` means a save is still needed. Read with `persist: true` and no options. Change while stopped; `reset: true` restores automatic steps and real-time pacing in the selected scope. Persistent changes clear session overrides and preserve numeric-analysis definitions and other solver options.
+`native_configure_interactive(time_step: 0.001, max_time_step: 0.001, real_time: true)` writes native document settings by default. Choose steps that resolve the fastest relevant signal. Save with `native_save_source` to retain changes, or add `save_to_source: true` to configure and save in one transaction. `persist: false` selects temporary session overrides. `saved_to_file: false` means a disk save is still needed. `reset: true` restores automatic steps and real-time pacing in the selected scope. Change while stopped; other native analysis and solver settings are preserved.
 
-上述参数默认仅本会话有效。添加 `persist: true` 写入原生文档，再另存；同时添加 `save_to_source: true` 则先备份，保存回原文件并独立重开核对。重开后普通启动仿真也使用保存的参数。`saved_to_file: false` 表示还需保存；只传 `persist: true` 读取文档设置。`persist: true, reset: true` 恢复文档的自动步长和实时节奏，再保存即可保留。停止仿真后修改，设置不会覆盖数值分析定义和其他求解器选项。
+上述参数默认写入原生文档。使用 `native_save_source` 保存，或添加 `save_to_source: true` 在一次调用中配置并保存；`persist: false` 选择临时会话覆盖。`saved_to_file: false` 表示还需保存；`reset: true` 恢复所选范围的自动步长和实时节奏。停止仿真后修改，其他分析配置和求解器选项保持原值。
 
 `native_control_interactive` accepts `start`, `pause`, `resume` and `stop`. It returns the observed `state_name`, `simulation_time_s`, errors and `transition_confirmed`. Repeating an already reached state is idempotent. A queued command with `transition_confirmed: false` is still pending; poll `native_interactive_status`. Numeric-session cleanup occurs before starting interactive simulation and preserves object handles. Stop interactive simulation before editing, regenerating the netlist or running numeric analysis.
 

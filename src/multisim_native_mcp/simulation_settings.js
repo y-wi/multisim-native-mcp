@@ -313,3 +313,17 @@ function persistenceSheetData(state) {
 editorHandlers.sheetDisplaySettings=sheetDisplaySettings;
 editorHandlers.persistWiringOptions=persistWiringOptions;
 editorHandlers.openDocument=openDocument;
+editorHandlers.simulationPropertyDiff=args=>{
+  const before=simulationCatalog(args.expected),after=simulationCatalog(args.actual),key=f=>JSON.stringify(f.path);
+  const expected=new Map(before.map(f=>[key(f),f])),actual=new Map(after.map(f=>[key(f),f])),differences=[];
+  for(const path of new Set([...expected.keys(),...actual.keys()])){
+    const a=expected.get(path),b=actual.get(path);
+    const field=a||b,property='simulation_settings'+field.path.map(p=>'['+JSON.stringify(p)+']').join('');
+    if(a&&b&&a.native_type!==b.native_type)differences.push({path:property+'.native_type',kind:'changed',expected:a.native_type,actual:b.native_type});
+    if(!a||!b||a.value!==b.value){
+      differences.push({path:property,
+        kind:!a?'unexpected':!b?'missing':'changed',expected:a?.value??null,actual:b?.value??null});
+    }
+  }
+  return {differences};
+};

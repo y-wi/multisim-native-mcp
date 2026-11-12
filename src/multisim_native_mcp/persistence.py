@@ -37,10 +37,14 @@ native_check_layout native_plan_wire_route native_persistence_capabilities'''),
 
 def persistence_capabilities():
     from . import __version__
+    from .catalog import COMPATIBILITY_TOOLS
     tools=[{'tool':name,'category':category,'scope':scope,'persistence':note}
            for category,scope,note,names in GROUPS for name in names.split()]
     assert len({t['tool'] for t in tools})==len(tools)
-    return {'server_version':__version__,'tool_count':len(tools),'tools':sorted(tools,key=lambda t:t['tool']),
+    for tool in tools:
+        tool['listed']=tool['tool'] not in COMPATIBILITY_TOOLS
+        if not tool['listed']:tool['preferred_tool']=COMPATIBILITY_TOOLS[tool['tool']]
+    return {'server_version':__version__,'tool_count':sum(t['listed'] for t in tools),'registered_tool_count':len(tools),'tools':sorted(tools,key=lambda t:t['tool']),
             'source_save':'native_save_source',
             'simulation_configuration':'native_simulation_settings',
             'file_verification':['all sheets','components and parameters','embedded SPICE text models','wire connectivity and geometry',

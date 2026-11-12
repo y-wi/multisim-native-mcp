@@ -2,9 +2,13 @@
 
 ## 0.5.1
 
+- Preserve valid saved hierarchical circuits when deleting connected ports, including undo and redo.
+- Unify standalone, batch and workflow selector names, and use one idempotent explicit-connection engine.
+- Keep compatibility aliases callable while presenting a smaller preferred tool catalog.
+- Return primary/named parameter slots by default, with explicit full metadata reads.
+- Report ID remapping on native refreshes and field-level save differences with expected and actual values.
 - List, edit and delete free text in place, including workflow bindings, undo and verified saves.
 - Update sheet properties, hierarchical connector names/positions and branch junction positions through dedicated tools.
-
 - Verify persistent wire names and visibility independently of generated node text, and report precise save differences.
 - Unify standalone and batch deletion selectors; support generated net-label removal while retaining its wire.
 - Honor verification options when saving the current source, including workflow saves.

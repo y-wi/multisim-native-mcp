@@ -16,16 +16,16 @@ Here index 1 applies specifically to `RESISTOR_VIRTUAL`. Its index 0 is a model 
 
 ## Batch edits
 
-`native_edit_batch` takes a nonempty list of operations as one undo unit. Operations run in order; failure restores the checkpoint. Batch arguments use native operation keys, which differ from standalone tool parameter names:
+`native_edit_batch` takes a nonempty list of operations as one undo unit. Operations run in order; failure restores the checkpoint. Use standalone selector names (`component_ref`, `wire_id`, `object_id`, `junction_id`); older `ref` and `id` aliases also work. Operation names accept the standalone name with or without `native_`, as well as existing camelCase names. Conflicting selectors fail before a checkpoint or edit.
 
 By default `atomic: true` rolls back this entire batch on failure. Choose `atomic: false` to preserve completed steps and restore only the failing operation. Earlier calls remain committed in either mode. Error results contain the rollback scope, preserved step count, handle invalidation flag and fresh state; consume these before another edit. A first-operation target lookup failure keeps handles intact.
 
 ```json
 {
   "operations": [
-    {"operation":"place","arguments":{"name":"RESISTOR_VIRTUAL","ref":"R1","x":306,"y":108,"parameters":[{"index":1,"value":1000}]}},
-    {"operation":"place","arguments":{"name":"RESISTOR_VIRTUAL","ref":"R2","x":504,"y":108,"parameters":[{"index":1,"value":1000}]}},
-    {"operation":"wire","arguments":{"source":{"ref":"R1","pin":"2"},"target":{"ref":"R2","pin":"1"}}}
+    {"operation":"place_component","arguments":{"name":"RESISTOR_VIRTUAL","reference":"R1","x":306,"y":108,"parameters":[{"index":1,"value":1000}]}},
+    {"operation":"place_component","arguments":{"name":"RESISTOR_VIRTUAL","reference":"R2","x":504,"y":108,"parameters":[{"index":1,"value":1000}]}},
+    {"operation":"connect_endpoints","arguments":{"source":{"component_ref":"R1","pin":"2"},"target":{"component_ref":"R2","pin":"1"}}}
   ],
   "include_state": true
 }
@@ -37,26 +37,27 @@ Common batch operations:
 
 | Operation | Arguments |
 | --- | --- |
-| `place` | `name, ref, x, y`, optional `family, group, manufacturer, parameters, anchor, pin` |
-| `setParameter` | `ref, index`, exactly one of `value, expression` |
-| `wire`, `connectEndpoint` | `source, target`, optional `points` for `connectEndpoint` |
-| `move` | `ref, dx, dy` (relative displacement) |
-| `moveLabel` | `ref, x, y`, optional `kind: reference | value` (absolute label center) |
-| `transform` | `ref, angle` (finite degrees), or `ref, axis` (`horizontal` / `vertical`) |
-| `route` | `id, points` |
-| `autoWire` | `id` (Multisim native router, preserving wire ID and electrical endpoints) |
-| `connectTouching` | optional `refs` list (current sheet if omitted) |
-| `rename` | `ref, new_ref` |
-| `addText` | `text, x, y` |
-| `sheetSize` | `width, height` (positive native dimensions; the converted CUTRect work area must fit signed 32-bit fields) |
+| `place_component` | `name, reference, x, y`, optional `family, group, manufacturer, parameters, anchor, pin` |
+| `set_parameter` | `component_ref, index`, exactly one of `value, expression` |
+| `connect_endpoints` | `source, target`, optional `points` |
+| `move_component` | `component_ref, dx, dy` (relative displacement) |
+| `move_component_label` | `component_ref, x, y`, optional `kind: reference | value` (absolute label center) |
+| `transform_component` | `component_ref, angle` (finite degrees), or `component_ref, mirror_axis` (`horizontal` / `vertical`) |
+| `route_wire` | `wire_id, points` |
+| `autoWire` | `wire_id` (Multisim native router, preserving wire ID and electrical endpoints) |
+| `connect_touching` | optional `component_refs` list (current sheet if omitted) |
+| `rename_component` | `component_ref, new_ref` |
+| `add_text`, `update_text` | `text, x, y`; update additionally takes `object_id`, and omitted text/coordinates retain their values |
+| `delete_object` | exactly one of `object_id, component_ref` |
+| `update_sheet` | supplied `title, page, width, height` fields; omitted fields retain their values |
 
-For other batch operations, consult the installed implementation or use the corresponding standalone tool with its published schema. Do not infer internal argument keys from tool names.
+Default public results omit unused native parameter slots. `parameter_count` and `parameters_complete` describe the returned metadata; use `include_parameters: true` on placement/preparation/batches, or `native_get_parameters`, when full slots are needed. Experiment values and supplied parameter edits are retained. Higher-level obstacle planning remains available through standalone `native_auto_route_wire(engine: obstacle)`.
 
 ## Electrical wires and branches
 
-Shared power symbols may have identical `ref` and `local_ref`. Use their current component IDs in `component_ref` or batch/endpoint `ref`. Physical wire ownership is determined by connector IDs; shared net names do not identify a specific placed symbol. Wire endpoints include `component_id`. Read fresh IDs after netlist refresh, undo, redo or rollback.
+Shared power symbols may have identical `ref` and `local_ref`. Use their current component IDs in `component_ref`. Physical wire ownership is determined by connector IDs; shared net names do not identify a specific placed symbol. Wire endpoints include `component_id`. A controlled refresh reports changed handles in `id_map`, unresolved handles in `unresolved_ids`, and current state. Apply mappings before the next standalone edit; workflow bindings do this automatically. Rollback errors return fresh state.
 
-Standalone `native_connect_pins` accepts `source_ref, source_pin, target_ref, target_pin`. Endpoint tools accept `{"ref":"R1","pin":"2"}` or `{"junction_id":"<current junction ID>"}`.
+Use `native_connect_endpoints` with `{"component_ref":"R1","pin":"2"}` or `{"junction_id":"<current junction ID>"}`. `ref` remains accepted inside endpoints. Repeating an existing connection reuses its wire and does not dirty the topology. `wire` and `native_connect_pins` are compatibility forms of this same connection engine. `native_connect_touching` is for discovering physical contacts rather than selecting explicit endpoints.
 
 - Read actual wire routes with `native_list_wires` or the current state. Wire vertices and pin positions share sheet units.
 - `native_route_wire(wire_id, points)` replaces the route. Each point is `{"x":integer,"y":integer}`; first and last points must match the native electrical connectors exactly.
@@ -77,9 +78,9 @@ Native root window captions follow the filename after reopening; use `page` for 
 
 ## Free text
 
-Read `state.texts` or `native_list_texts` for independent notes, including IDs, content, insertion coordinates, transform and bounds. Use `native_update_text(object_id, text?, x?, y?)` to change content and/or absolute insertion position while retaining formatting and ID. Omitted fields retain their values; `text: ""` clears the note. Use `native_delete_text(object_id)` or `native_delete_object(object_id)` to remove it. Component reference/value labels and generated wire net labels are separate objects with separate editing tools.
+Read `state.texts` or `native_list_texts` for independent notes, including IDs, content, insertion coordinates, transform and bounds. Use `native_update_text(object_id, text?, x?, y?)` to change content and/or absolute insertion position while retaining formatting and ID. Omitted fields retain their values; `text: ""` clears the note. Use `native_delete_object(object_id)` to remove it. Ordinary free-text deletion preserves electrical handles. Component reference/value labels and generated wire net labels are separate objects with separate editing tools.
 
-Batch/workflow operations are `updateText {id,text?,x?,y?}`, `deleteText {id}`, `updateSheet {title?,page?,width?,height?}`, `updatePort {id,name?,x?,y?}`, and `moveJunction {id,x,y}`. Text selectors also accept `object_id`. Bind `addText` results and use `{"$ref":"note.id"}` in later edits. Undo, rollback and native reopen can change IDs; use current state after these operations. Save normally to persist all edits.
+Batch/workflow forms include `update_text {object_id,text?,x?,y?}`, `delete_object {object_id}`, `update_sheet {title?,page?,width?,height?}`, `update_hierarchical_port {object_id,name?,x?,y?}` and `move_junction {junction_id,x,y}`. Existing camelCase and `id` selectors remain accepted. Bind `add_text` results and use `{"$ref":"note.id"}` in later edits. Controlled refreshes report ID maps; workflow bindings rebind automatically. Save normally to persist all edits.
 
 Embedded model text may be shared by several components. `native_set_model_text` returns affected references across the project; inspect these before treating it as a single-instance change.
 

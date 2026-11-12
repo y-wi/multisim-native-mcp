@@ -22,6 +22,8 @@ from PIL import Image
 
 from .bridge import NativeHost, ROOT, INSTALL, sha256, editor_script
 from .paths import DATA_DIR
+from .edit_contracts import normalize_edit
+from .identity import identity_changes
 
 # Native exports use their actual bitmap format and allocator bounds.
 Image.MAX_IMAGE_PIXELS = None
@@ -32,6 +34,12 @@ MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','rout
              'autoWire','connectTouching'}
 TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect','replace','splitWire',
                     'createSheet','createSubcircuit','createPort','updatePort','rename','connectTouching'}
+
+
+def changes_topology(operation,result):
+    if isinstance(result,dict) and 'topology_changed' in result:return bool(result['topology_changed'])
+    repeated=operation in ('wire','connectEndpoint') and isinstance(result,dict) and result.get('alreadyConnected')
+    return operation in TOPOLOGY_MUTATIONS and not repeated
 
 
 class NativeSaveError(RuntimeError):
@@ -175,14 +183,19 @@ class EditorService(NativeHost):
                     shutil.copy2(result['path'],verification)
                     reopened=self.call('verifySavedCopy',{'path':str(verification),'include_parameters':True,'include_persistence':True,'include_simulation_settings':True})
                     expected=self.saved_signature(sheets);actual=self.saved_signature(reopened['states'])
+                    from .save_differences import saved_differences,difference_summary
+                    settings_differences=[]
                     if simulation_settings!=reopened['simulation_settings']:
-                        raise RuntimeError('Saved simulation settings differ after native reopen')
-                    if expected!=actual:
+                        try:settings_differences=self.call('simulationPropertyDiff',{'expected':simulation_settings,'actual':reopened['simulation_settings']})['differences']
+                        except Exception:pass
+                        if not settings_differences:settings_differences=saved_differences(simulation_settings,reopened['simulation_settings'],'simulation_settings.serialized')
+                    if expected!=actual or settings_differences:
                         diagnostic=verification.with_suffix('.json')
-                        from .save_differences import saved_differences,difference_summary
-                        differences=saved_differences(expected,actual)
-                        diagnostic.write_text(json.dumps({'expected':expected,'actual':actual,'differences':differences},ensure_ascii=False,indent=2),encoding='utf-8')
-                        raise NativeSaveError('Saved circuit differs after native reopen: '+difference_summary(differences)+'; diagnostics: '+str(diagnostic),
+                        differences=saved_differences(expected,actual)+settings_differences
+                        diagnostic.write_text(json.dumps({'expected':expected,'actual':actual,'differences':differences,
+                            'simulation_settings':{'expected':simulation_settings,'actual':reopened['simulation_settings']}},ensure_ascii=False,indent=2),encoding='utf-8')
+                        prefix='Saved simulation settings differ after native reopen' if settings_differences else 'Saved circuit differs after native reopen'
+                        raise NativeSaveError(prefix+': '+difference_summary(differences)+'; diagnostics: '+str(diagnostic),
                             {'differences':differences,'diagnostic_path':str(diagnostic),'verification':{'passed':False,'reopened':True}})
                     result['verification']={'passed':True,'reopened':True,'simulation_settings_preserved':True,'sheets':len(sheets),'components':sum(len(s['components']) for s in sheets),'wires':sum(len(s['wires']) for s in sheets)}
                 except Exception:
@@ -377,7 +390,11 @@ class EditorService(NativeHost):
         return result
 
     def edit(self, operation, args=None):
-        return self.batch([{'operation':operation,'arguments':args or {}}])['results'][0]
+        batch=self.batch([{'operation':operation,'arguments':args or {}}])
+        value=batch['results'][0]
+        if isinstance(value,dict) and batch.get('handles_invalidated'):
+            value={**value,**{k:batch[k] for k in ('handles_invalidated','handle_generation','id_map','unresolved_ids','state') if k in batch}}
+        return value
 
     def edit_sequence(self, operations, bindings, cancel=None):
         """One checkpoint for a phase; bounded UI-thread slices resolve intermediate results."""
@@ -416,7 +433,7 @@ class EditorService(NativeHost):
                         results.append(value)
                         if op.get('bind'):current[op['bind']]=value
                         end=index+1
-                    self.topology_dirty=self.topology_dirty or any(op['operation'] in TOPOLOGY_MUTATIONS for op in operations[index:end]) or any(isinstance(r,dict) and r.get('topology_changed') for r in results)
+                    self.topology_dirty=self.topology_dirty or any(changes_topology(op['operation'],result) for op,result in zip(operations[index:end],results[-(end-index):]))
                     index=end
                 self.call('markModified')
             except Exception as error:
@@ -438,6 +455,9 @@ class EditorService(NativeHost):
             self.validate(op['operation'],op.get('arguments',{}))
         with self.lock:
             if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before editing the circuit')
+            generation=self.handle_generation
+            may_refresh=any(op['operation'] in ('createSubcircuit','replace') for op in operations)
+            previous_identity=self.call('projectCircuitState')['states'] if may_refresh else None
             # Resolve the first existing target before saving or reopening anything.
             first=operations[0]
             if first['operation'] in {'move','moveLabel','transform','copy','remove','setParameter','setModelText','rename','replace'} and first.get('arguments',{}).get('ref'):
@@ -459,13 +479,23 @@ class EditorService(NativeHost):
                     if op['operation']=='replace' and self.topology_dirty:
                         args=dict(op.get('arguments',{}))
                         args['ref']=next(c['ref'] for c in self.call('components')['components'] if args['ref'] in (c['ref'],c['local_ref'],c['id']))
+                        old_state=self.call('circuitState',{'include_parameters':True})
                         self.restore(self.checkpoint())
+                        new_state=self.call('circuitState',{'include_parameters':True})
+                        from .workflows import remap_bindings
+                        before_refresh={**old_state,'handle_epoch':'before'};after_refresh={**new_state,'handle_epoch':'after'}
+                        results=remap_bindings(results,before_refresh,after_refresh)
+                        operations[index+1:]=remap_bindings(operations[index+1:],before_refresh,after_refresh)
                     else:args=op.get('arguments',{})
                     results.append(self.call(op['operation'],args))
-                    self.topology_dirty=self.topology_dirty or op['operation'] in TOPOLOGY_MUTATIONS or (isinstance(results[-1],dict) and bool(results[-1].get('topology_changed')))
+                    self.topology_dirty=self.topology_dirty or changes_topology(op['operation'],results[-1])
                 self.call('markModified')
                 if any(op['operation']=='createSubcircuit' for op in operations):
+                    old_state=self.call('circuitState',{'include_parameters':True})
                     self.restore(self.checkpoint())
+                    new_state=self.call('circuitState',{'include_parameters':True})
+                    from .workflows import remap_bindings
+                    results=remap_bindings(results,{**old_state,'handle_epoch':'before'},{**new_state,'handle_epoch':'after'})
                     for op,result in zip(operations,results):
                         if op['operation']=='createSubcircuit':
                             result['components']=self.call('components')['components'];result['sheets']=self.call('sheets')
@@ -484,20 +514,15 @@ class EditorService(NativeHost):
                     'failed_operation_index':index,'completed_operations':0 if atomic else len(results),'handles_invalidated':True,
                     'rollback_checkpoint':(before if atomic else step_before)['path'],'state':state}) from error
             self.undo_stack.append(before); self.redo_stack.clear()
+            refreshed=self.handle_generation!=generation
+            identity=identity_changes(previous_identity,self.call('projectCircuitState')['states']) if refreshed and previous_identity is not None else {}
             return {'results':results,'undo_depth':len(self.undo_stack),'rollback_checkpoint':before['path'],
-                    **({'state':self.call('circuitState',{'include_parameters':True})} if include_state else {})}
+                    **({'handles_invalidated':True,'handle_generation':self.handle_generation,**identity} if refreshed else {}),
+                    **({'state':self.call('circuitState',{'include_parameters':True})} if include_state or refreshed else {})}
 
     @staticmethod
     def normalize_edit(operation):
-        operation=dict(operation);args=dict(operation.get('arguments',{}))
-        if operation.get('operation') in ('remove','updateText','deleteText','moveJunction','updatePort'):
-            for alias,target in [('object_id','id')]+([('component_ref','ref')] if operation['operation']=='remove' else []):
-                if alias in args:
-                    if target in args and args[target]!=args[alias]:raise ValueError('Conflicting '+alias+' and '+target)
-                    args[target]=args.pop(alias)
-            if operation['operation']=='remove' and bool(args.get('id'))==bool(args.get('ref')):raise ValueError('remove requires one object_id/id or component_ref/ref')
-        operation['arguments']=args
-        return operation
+        return normalize_edit(operation)
 
     def list_projects(self):
         with self.lock:
@@ -558,19 +583,28 @@ class EditorService(NativeHost):
             if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before undo or redo')
             source,target=(self.undo_stack,self.redo_stack) if action=='undo' else (self.redo_stack,self.undo_stack)
             if not source: raise ValueError('No '+action+' checkpoint')
+            before=self.call('projectCircuitState')['states']
             current=self.checkpoint(); checkpoint=source[-1]
             result=self.restore(checkpoint);source.pop();target.append(current)
-            return {**result,'undo_depth':len(self.undo_stack),'redo_depth':len(self.redo_stack),'handles_invalidated':True}
+            after=self.call('projectCircuitState')['states']
+            selected=checkpoint.get('sheet_index',0)
+            state=next((s for s in after if s.get('sheet_index')==selected),after[0] if after else {})
+            return {**result,'undo_depth':len(self.undo_stack),'redo_depth':len(self.redo_stack),'handles_invalidated':True,
+                    'handle_generation':self.handle_generation,'state':state,**identity_changes(before,after)}
 
     def netlist(self):
         with self.lock:
             if self.call('simulationInfo')['state'] in (1,2):raise RuntimeError('Stop interactive simulation before regenerating its netlist or running numeric analysis')
             refreshed=False
             if self.topology_dirty:
+                before=self.call('circuitState')
                 self.restore(self.checkpoint());refreshed=True
             result=self.call('netlist')
-            return {**result,'handles_invalidated':refreshed,
-                    **({'state':self.call('circuitState',{'include_parameters':True})} if refreshed else {})}
+            if refreshed:
+                after=self.call('circuitState')
+                return {**result,'handles_invalidated':True,'handle_generation':self.handle_generation,
+                        'state':after,**identity_changes(before,after)}
+            return {**result,'handles_invalidated':False}
 
     @staticmethod
     def output_path(value,suffixes,overwrite=False):
