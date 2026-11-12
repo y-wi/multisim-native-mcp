@@ -216,7 +216,6 @@ class SaveStage(Stage):
     @model_validator(mode='after')
     def target(self):
         if self.output_path and self.save_to_source:raise ValueError('Choose output_path or save_to_source=true')
-        if not self.output_path and not self.verify:raise ValueError('Current/source saves always require verification')
         return self
 
 

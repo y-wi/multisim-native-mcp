@@ -58,7 +58,7 @@ Without `save_to_source`, changes remain in the editable native document: call `
 | Undo/redo and metadata caches | Session state. The resulting restored design can be saved; process-local history cannot be embedded as a portable circuit. |
 | Inspection, routing plans and waveform calculations | Read-only outputs; no document setting to save. |
 
-`native_save_source` saves **all** current document edits, not just simulation settings. It always checks external source changes, creates a backup, saves natively to a staged file and independently reopens it before source replacement. Verification covers components/parameters, embedded SPICE text, connectivity/geometry, labels, annotations, page names, grid/border/bounds and the complete simulation-information property. New circuits are created directly as workspace files and use the same normal source save; packaged templates remain internal resources.
+`native_save_source` saves **all** current document edits, not just simulation settings. It checks external source changes, creates a backup and saves natively to a staged file. Reopen verification is enabled by default; `verify:false` skips that step and is reported as `verification.skipped:true`. Verification covers persistent wire names and visibility, components/parameters, embedded SPICE text, connectivity/geometry, labels, annotations, page names, grid/border/bounds and the complete simulation-information property. New circuits are created directly as workspace files and use the same normal source save; packaged templates remain internal resources.
 
 ## 中文要点
 

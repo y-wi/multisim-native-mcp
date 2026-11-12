@@ -34,6 +34,11 @@ TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect'
                     'createSheet','createSubcircuit','createPort','rename','connectTouching'}
 
 
+class NativeSaveError(RuntimeError):
+    def __init__(self,message,details):
+        super().__init__(message);self.details={'error':message,**details}
+
+
 class NativeEditError(RuntimeError):
     def __init__(self, message, details):
         super().__init__(message)
@@ -141,14 +146,15 @@ class EditorService(NativeHost):
                           'labels':[{k:l[k] for k in ('kind','text', 'transform' if 'transform' in l else 'center')} for l in c.get('labels',[])],
                           'parameters':c.get('parameters',[]),'model_text':c.get('model_text')} for c in s['components']]),
                       'wires':order([{'source':endpoint(w['source']),'target':endpoint(w['target']),'points':w['points']} for w in s['wires']]),
-                      'content_bounds':s['content_bounds'],'annotations':order(s.get('annotations',[])),
+                      'annotations':order(s.get('annotations',[])),
+                      'wire_labels':order(s.get('wire_labels',[])),
                       'sheet_display':s.get('sheet_display')} for s in sheets])
 
     def save_copy(self,output_path,overwrite=False,allow_off_page=False,verify=True):
         if not isinstance(allow_off_page,bool) or not isinstance(verify,bool):raise ValueError('allow_off_page and verify must be boolean')
         with self.lock:
             if self.source and not self.isolated and Path(output_path).resolve()==self.source:
-                return self.save_source(allow_off_page)
+                return self.save_source(allow_off_page,**({'verify':False} if not verify else {}))
             job=self.analysis_job
             if job and job['status'] in ('running','pause_requested','stop_requested'):
                 raise RuntimeError('Stop numeric analysis before saving the circuit')
@@ -173,20 +179,23 @@ class EditorService(NativeHost):
                         raise RuntimeError('Saved simulation settings differ after native reopen')
                     if expected!=actual:
                         diagnostic=verification.with_suffix('.json')
-                        diagnostic.write_text(json.dumps({'expected':expected,'actual':actual},ensure_ascii=False,indent=2),encoding='utf-8')
-                        raise RuntimeError('Saved circuit differs after native reopen; diagnostics: '+str(diagnostic))
+                        from .save_differences import saved_differences,difference_summary
+                        differences=saved_differences(expected,actual)
+                        diagnostic.write_text(json.dumps({'expected':expected,'actual':actual,'differences':differences},ensure_ascii=False,indent=2),encoding='utf-8')
+                        raise NativeSaveError('Saved circuit differs after native reopen: '+difference_summary(differences)+'; diagnostics: '+str(diagnostic),
+                            {'differences':differences,'diagnostic_path':str(diagnostic),'verification':{'passed':False,'reopened':True}})
                     result['verification']={'passed':True,'reopened':True,'simulation_settings_preserved':True,'sheets':len(sheets),'components':sum(len(s['components']) for s in sheets),'wires':sum(len(s['wires']) for s in sheets)}
                 except Exception:
                     if result['backup']:shutil.copy2(result['backup'],result['path'])
                     raise
                 finally:verification.unlink(missing_ok=True)
-            else:result['verification']={'reopened':False}
+            else:result['verification']={'reopened':False,'passed':None,'skipped':True}
             if not self.isolated and not getattr(self,'_saving_source',False) and self.source:
                 self.source=self.working=Path(result['path']).resolve();self.source_hash=result['sha256']
                 result['current_document']=str(self.source)
             return result
 
-    def _save_source(self,allow_off_page=False):
+    def _save_source(self,allow_off_page=False,verify=True):
         """Explicit source replacement, only after verified native save and conflict checks."""
         if not self.source or not self.source.is_file():raise ValueError('No existing source file to save')
         source=self.source
@@ -197,7 +206,7 @@ class EditorService(NativeHost):
         original_path=self.call('inspect')['projectPath'];backup=None;replaced=False
         self._saving_source=True
         try:
-            result=self.save_copy(str(staged),verify=True,**({'allow_off_page':True} if allow_off_page else {}))
+            result=self.save_copy(str(staged),verify=verify,**({'allow_off_page':True} if allow_off_page else {}))
             if sha256(source)!=self.source_hash:raise RuntimeError('Source changed during verification; source was not overwritten')
             backup=self.backup_file(source)
             if sha256(backup)!=self.source_hash or sha256(source)!=self.source_hash:
@@ -214,17 +223,18 @@ class EditorService(NativeHost):
         finally:
             self._saving_source=False;staged.unlink(missing_ok=True)
 
-    def save_source(self,allow_off_page=False):
+    def save_source(self,allow_off_page=False,verify=True):
         if not isinstance(allow_off_page,bool):raise ValueError('allow_off_page must be boolean')
-        with self.lock:return self._save_source(allow_off_page)
+        if not isinstance(verify,bool):raise ValueError('verify must be boolean')
+        with self.lock:return self._save_source(allow_off_page,verify)
 
-    def save_current(self,allow_off_page=False):
+    def save_current(self,allow_off_page=False,verify=True):
         with self.lock:
-            if not self.isolated:return self.save_source(allow_off_page)
+            if not self.isolated:return self.save_source(allow_off_page,**({'verify':False} if not verify else {}))
             source,digest=self.source,self.source_hash
             try:
                 self.source=self.working;self.source_hash=self.working_hash or sha256(self.working)
-                result=self.save_source(allow_off_page);result['saved_to_source']=False;result['saved_working_copy']=True
+                result=self.save_source(allow_off_page,**({'verify':False} if not verify else {}));result['saved_to_source']=False;result['saved_working_copy']=True
                 self.working_hash=sha256(self.working)
                 return result
             finally:self.source,self.source_hash=source,digest
@@ -372,6 +382,7 @@ class EditorService(NativeHost):
     def edit_sequence(self, operations, bindings, cancel=None):
         """One checkpoint for a phase; bounded UI-thread slices resolve intermediate results."""
         from .workflow_values import resolve,reference_roots
+        operations=[self.normalize_edit(op) for op in operations]
         packed={'place','move','alignPin','moveLabel','transform','wire','connectEndpoint','route','autoWire',
                 'setParameter','addText','labelWire','splitWire','rename','remove','connectTouching',
                 'sheetSize','sheetTitle','repairWireGeometry'}
@@ -420,6 +431,7 @@ class EditorService(NativeHost):
 
     def batch(self, operations, include_state=False, atomic=True):
         if not operations: raise ValueError('Provide nonempty edit operations')
+        operations=[self.normalize_edit(op) for op in operations]
         for op in operations:
             if op.get('operation') not in MUTATIONS or not isinstance(op.get('arguments',{}),dict):
                 raise ValueError('Unsupported edit operation: '+str(op.get('operation')))
@@ -474,6 +486,26 @@ class EditorService(NativeHost):
             self.undo_stack.append(before); self.redo_stack.clear()
             return {'results':results,'undo_depth':len(self.undo_stack),'rollback_checkpoint':before['path'],
                     **({'state':self.call('circuitState',{'include_parameters':True})} if include_state else {})}
+
+    @staticmethod
+    def normalize_edit(operation):
+        operation=dict(operation);args=dict(operation.get('arguments',{}))
+        if operation.get('operation')=='remove':
+            for alias,target in [('object_id','id'),('component_ref','ref')]:
+                if alias in args:
+                    if target in args and args[target]!=args[alias]:raise ValueError('Conflicting '+alias+' and '+target)
+                    args[target]=args.pop(alias)
+            if bool(args.get('id'))==bool(args.get('ref')):raise ValueError('remove requires one object_id/id or component_ref/ref')
+        operation['arguments']=args
+        return operation
+
+    def list_projects(self):
+        with self.lock:
+            if not self.agent:
+                running=[p for p in frida.get_local_device().enumerate_processes() if p.name.lower() in ('multisim','multisim.exe')]
+                if len(running)!=1:raise RuntimeError('Select a Multisim process with native_attach; available PIDs: '+str([p.pid for p in running]))
+                self.attach(running[0].pid)
+            return self.call('projects')
 
     @staticmethod
     def validate(op,args):

@@ -8,7 +8,7 @@ native_split_wire native_connect_endpoints native_reconnect_wire native_add_text
 native_create_sheet native_create_subcircuit native_create_hierarchical_port native_edit_batch native_auto_route_wire'''),
     ('document_settings','circuit','Native document properties; save explicitly. Interactive settings are document-owned by default; persist=false explicitly selects temporary overrides.', '''
 native_simulation_settings native_configure_sheet_display native_configure_interactive'''),
-    ('save','circuit_file','Native save with backup and reopen verification; source save always verifies and detects conflicts.', '''
+    ('save','circuit_file','Native save with backup and conflict checks. Reopen verification is enabled by default; verify=false explicitly skips it and returns verification.skipped=true.', '''
 native_save_source native_save_copy'''),
     ('application_preferences','application','persist=true commits native application preferences and verifies reload; these are not .ms14 fields.', '''
 native_configure_wiring'''),

@@ -26,7 +26,7 @@
 | `analysis` | `options`, `measurements`, `criteria` |
 | `verify` | `raw_path`, `measurements`, `criteria`; reuse an existing analysis |
 | `decode` | `raw_path`, `digits`, `expected`, `options` for scanned-display decoding |
-| `save` | normal current-document save by default; optional `output_path` for Save As; `overwrite`, `allow_off_page`, `verify` (source saves always verify) |
+| `save` | normal current-document save by default; optional `output_path` for Save As; `overwrite`, `allow_off_page`, `verify` (default true) |
 | `export` | absolute `output_path`, `overwrite`, `dpi`, `fit_content`, `show_frame`, `show_grid` |
 | `interactive` | time steps, `real_time`, `persist: true`, `captures`, `overwrite`, `stop_after: true` |
 | `close` | save pending edits by default, then close/detach; `save_changes: false` skips saving |

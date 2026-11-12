@@ -205,7 +205,9 @@ class WorkflowManager:
                             ref='MCP_PREPARE_'+uuid.uuid4().hex[:12]
                             placed=self.host.call('place',{**r,'ref':ref,'x':180,'y':180,'anchor':'center'})
                             c=placed['component'];actual=placed['placement']['actual']
-                            entry={'request':r,'library':c.get('library'),'pins':[{'name':p['name'],'dx':p['x']-actual['x'],'dy':p['y']-actual['y']} for p in c['pins']],
+                            entry={'request':r,'library':c.get('library'),'anchor':'center','coordinate_system':'sheet_units',
+                                   'pin_offsets_relative_to':'placement.actual (center anchor)',
+                                   'placement':placed['placement'],'pins':[{'name':p['name'],'dx':p['x']-actual['x'],'dy':p['y']-actual['y']} for p in c['pins']],
                                    'parameters':placed['parameters'],'candidate':candidates[0]}
                             self.catalog[digest(r)]=entry
                         except Exception as error:issues.append({'component':r,'error':str(error)})
@@ -428,8 +430,8 @@ class WorkflowManager:
             if not result['passed']:raise NeedsInput('Display acceptance failed',result)
             return result
         if kind=='save':
-            if a.pop('save_to_source',False):return self.host.save_source(allow_off_page=a.get('allow_off_page',False))
-            if not a.get('output_path'):return self.host.save_current(allow_off_page=a.get('allow_off_page',False))
+            if a.pop('save_to_source',False):return self.host.save_source(allow_off_page=a.get('allow_off_page',False),**({'verify':False} if not a.get('verify',True) else {}))
+            if not a.get('output_path'):return self.host.save_current(allow_off_page=a.get('allow_off_page',False),**({'verify':False} if not a.get('verify',True) else {}))
             return self.host.save_copy(**a)
         if kind=='export':return self.host.export_image(**a)
         if kind=='interactive':

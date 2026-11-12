@@ -4,7 +4,7 @@ For complete circuit tasks, prefer staged workflows in [workflows.md](workflows.
 
 ## State and parameters
 
-Create directly in the task workspace with `native_create_circuit(output_path, title)` and edit existing sources with `native_open_circuit`. Both return an initial `state`. `native_get_circuit_state(include_parameters: true)` returns current page bounds, sheet selection, component refs and pins, wire routes, labels, content bounds and indexed parameters.
+Create directly in the task workspace with `native_create_circuit(output_path, title)` and edit existing sources with `native_open_circuit`. Both return an initial `state`. `native_list_projects` attaches a single running Multisim process when no session is attached; runtime status distinguishes `running` from `session_attached`. `native_get_circuit_state` omits parameter metadata by default; `include_parameters: true` returns current page bounds, sheet selection, component refs and pins, wire routes, labels, content bounds and indexed parameters.
 
 For a component already present, call `native_get_parameters(component_ref)` and select its electrical-value descriptor by `role`, `name` and `unit`. Write either a numeric `value` or an `expression`, never both:
 
@@ -108,4 +108,6 @@ For a detail image, use `fit_content: true` with optional `padding`, or `region:
 
 Move an overlapping reference with `native_move_component_label(component_ref, x, y)`. Coordinates specify the absolute label center; read `state.components[].labels` for actual bounds. Grid snapping can affect symbol placement, so use returned positions rather than requested coordinates when checking alignment.
 
-Normal saves update the current workspace/source file using `native_save_source`. A workflow `save` without output_path does the same. Save As changes the current document path. Closing saves pending edits by default; skip saving only when the task calls for it. Backups and checkpoints are internal, not extra deliverables. `native_open_copy` is for explicit comparisons and creates its editable file in the chosen workspace.
+Normal saves update the current workspace/source file using `native_save_source`. A workflow `save` without output_path does the same. Save As changes the current document path. Source saves verify native readback by default. An explicit `verify:false` skips reopen verification, including saving to the current path; external-change checks and backups still apply. Closing saves pending edits by default; skip saving only when the task calls for it. Backups and checkpoints are internal, not extra deliverables. `native_open_copy` is for explicit comparisons and creates its editable file in the chosen workspace.
+
+Prepared pin offsets are relative to the returned center anchor, not the native placement origin. Use the returned `anchor`, `pin_offsets_relative_to` and `placement`; each placed component also returns `placement.pin_offsets` for its actual anchor. Symbol `body_bounds` excludes external pin leads; use returned pin coordinates for wiring. Batch `remove` accepts `object_id`/`id` or `component_ref`/`ref`, matching the standalone deletion selectors.

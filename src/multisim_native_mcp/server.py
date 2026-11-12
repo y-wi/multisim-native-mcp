@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import json
 from typing import Literal
-from .service import EditorService,NativeEditError
+from .service import EditorService,NativeEditError,NativeSaveError
 from mcp.types import CallToolResult,TextContent
 from .jobs import ExperimentManager
 from . import __version__
@@ -36,7 +36,7 @@ def checked(function):
                 'native_read_waveform','native_measure_waveform','native_verify_waveform','native_decode_seven_segment'}:
                 raise RuntimeError('A native experiment is running; inspect or cancel it first')
             return function(*args, **kwargs)
-        except NativeEditError as error:
+        except (NativeEditError,NativeSaveError) as error:
             return CallToolResult(isError=True,structuredContent=error.details,
                 content=[TextContent(type='text',text=json.dumps(error.details,ensure_ascii=False))])
         except NeedsInput as error:
@@ -103,7 +103,7 @@ def native_session_changes(since_revision: str | None = None, include_parameters
 @server.tool()
 @checked
 def native_runtime_status() -> dict:
-    """Read runtime availability and reference-profile hash diagnostics without starting Multisim."""
+    """Read runtime availability and reference-profile hash diagnostics without starting Multisim. running/processes describe actual running applications; session_attached describes this MCP connection."""
     return host.runtime_status()
 
 
@@ -146,8 +146,8 @@ def native_list_components() -> dict:
 
 @server.tool()
 @checked
-def native_get_circuit_state(include_parameters: bool = True) -> dict:
-    """Read page bounds in sheet units, content bounds, components, named pins, wires and optional parameter metadata in one call. Origin is top-left; 96 sheet units per inch. Paper dimensions are separate from sheet dimensions."""
+def native_get_circuit_state(include_parameters: bool = False) -> dict:
+    """Read page bounds in sheet units, content bounds, components, named pins and wires. Parameter metadata is omitted by default; include_parameters=true requests it. Origin is top-left; 96 sheet units per inch. Paper dimensions are separate from sheet dimensions."""
     return host.call('circuitState',{'include_parameters':include_parameters})
 
 
@@ -203,15 +203,15 @@ def native_move_component(component_ref: str, dx: int, dy: int) -> dict:
 @server.tool()
 @checked
 def native_save_copy(output_path: str, overwrite: bool = False, allow_off_page: bool = False, verify: bool = True) -> dict:
-    """Save to a specified .ms14 output while stopped. The current source path routes to normal source save without a separate overwrite flag. A different output acts as Save As in direct mode and becomes the current document; explicit copy mode preserves the original. Backups are internal. Native reopen verification is the default; Off-page content is saved; allow_off_page is retained for compatibility. Other existing output files require overwrite=true."""
+    """Save to a specified .ms14 output while stopped. The current source path routes to normal source save without a separate overwrite flag. A different output acts as Save As in direct mode and becomes the current document; explicit copy mode preserves the original. Backups are internal. Native reopen verification is the default; verify=false also applies when output_path is the current source. Off-page content is saved; allow_off_page is retained for compatibility. Other existing output files require overwrite=true."""
     return host.save_copy(output_path,overwrite,allow_off_page,verify)
 
 
 @server.tool()
 @checked
-def native_save_source(allow_off_page: bool = False) -> dict:
-    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification. Stop simulation first. In explicit copy mode this intentionally updates the original source. Off-page content is saved; allow_off_page is retained for compatibility."""
-    return host.save_source(allow_off_page)
+def native_save_source(allow_off_page: bool = False,verify: bool = True) -> dict:
+    """Normal save for new workspace circuits and existing source documents. Save ALL current native edits to the actual source .ms14, with internal backup, conflict checks and native reopen verification by default. verify=false skips reopen verification and returns verification.skipped=true. Stop simulation first. In explicit copy mode this intentionally updates the original source. Off-page content is saved; allow_off_page is retained for compatibility."""
+    return host.save_source(allow_off_page,verify)
 
 
 @server.tool()
@@ -282,7 +282,7 @@ def native_copy_component(component_ref: str, new_ref: str, x: int, y: int) -> d
 @server.tool()
 @checked
 def native_delete_object(object_id: str | None = None, component_ref: str | None = None) -> dict:
-    """Delete a native component, wire, text or junction by current object ID, or a component by its reference. Attached wires are removed by Multisim."""
+    """Delete a native component, wire, text, generated net label or junction by current object ID, or a component by its reference. Generated net-label deletion clears its user name/display without deleting its wire; component deletion removes attached wires."""
     if (object_id is None)==(component_ref is None): raise ValueError('Provide exactly one object_id or component_ref')
     return host.edit('remove',{'id':object_id} if object_id else {'ref':component_ref})
 
@@ -427,8 +427,8 @@ def native_create_hierarchical_port(name: str, x: int, y: int) -> dict:
 @server.tool()
 @checked
 def native_list_projects() -> dict:
-    """List open native projects, including their indexes for native_attach."""
-    return host.call('projects')
+    """List open native projects, including indexes for native_attach. If no session is attached, connect to the sole running Multisim process. When several processes are running, select one with native_attach."""
+    return host.list_projects()
 
 
 @server.tool()

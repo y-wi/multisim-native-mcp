@@ -26,12 +26,16 @@ def test_installed_package_stdio(tmp_path):
                 assert 'maximum' not in definitions['AnalysisOptions']['properties']['stop']
                 capture=next(tool for tool in listed.tools if tool.name=='native_export_interactive_image')
                 assert capture.input_schema['properties']['wait_timeout']['default'] is None
+                state_tool=next(t for t in listed.tools if t.name=='native_get_circuit_state')
+                assert state_tool.input_schema['properties']['include_parameters']['default'] is False
+                save_tool=next(t for t in listed.tools if t.name=='native_save_source')
+                assert save_tool.input_schema['properties']['verify']['default'] is True
                 assert len(names)==77
                 assert {'native_run_workflow','native_workflow_status','native_control_workflow','native_prepare_components','native_session_changes','native_attach','native_split_wire','native_save_copy','native_read_waveform','native_repair_wire_geometry','native_control_interactive','native_interactive_status','native_configure_interactive','native_export_interactive_image','native_configure_wiring','native_connect_touching'} <= names
                 status=await session.call_tool('native_runtime_status',{})
                 assert not status.is_error
                 data=status.structured_content or json.loads(status.content[0].text)
-                assert not data['running']
+                assert not data['session_attached']
                 assert len(data['checks']) == 15
                 invalid=await session.call_tool('native_list_components',{})
                 assert invalid.is_error

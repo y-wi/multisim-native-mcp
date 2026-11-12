@@ -300,13 +300,15 @@ function persistenceSheetData(state) {
     }c.model_text=text;
   }
   const annotations=[];
-  for(const object of listChildren(diagram().composite))if(/^\.\?AVCOD(?:Node)?TextComp@@/.test(rtti(object).name)){
+  for(const object of listChildren(diagram().composite))if(/^\.\?AVCODTextComp@@/.test(rtti(object).name)){
     const text=instanceString('Od101dll.dll','?GetText@CODTextComp@@',object,[treeInstance()],['pointer']);
-    // Native empty node-label placeholders are repositioned on load. They have
-    // no visible annotation content and are not portable text geometry.
+    // Node text is generated from persistent wire naming/display properties.
+    // Only independent user annotations have portable text geometry here.
     if(text.length)annotations.push({text,transform:matrix(object)});
   }
-  return {annotations,sheet_display:sheetDisplaySettings().native_preferences};
+  const endpoint=p=>Object.fromEntries(['ref','pin','x','y'].filter(k=>k in p).map(k=>[k,p[k]]));
+  const wire_labels=wires().wires.flatMap(w=>{const label=persistentWireLabel(w.id);return label?[{source:endpoint(w.source),target:endpoint(w.target),...label}]:[];});
+  return {annotations,wire_labels,sheet_display:sheetDisplaySettings().native_preferences};
 }
 editorHandlers.sheetDisplaySettings=sheetDisplaySettings;
 editorHandlers.persistWiringOptions=persistWiringOptions;

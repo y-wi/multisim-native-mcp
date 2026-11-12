@@ -138,9 +138,20 @@ function copyComponent(args) {
   } finally {method('SCH_CAP.dll','??1CComponentInfoRetrieve@@','void',['pointer'])(retriever);}
 }
 function removeObject(args) {
-  let id=args.id;
-  if(args.ref)id=component(args.ref).id;
+  let id=args.id||args.object_id;const ref=args.ref||args.component_ref;
+  if(ref)id=component(ref).id;
   if(!enumerate().objects.some(c=>c.id===id))throw new Error('Object does not exist on the selected sheet');
+  if(rtti(ptr(id)).name==='.?AVCODNodeTextComp@@'){
+    const owners=wires().wires.filter(w=>method('SCH_CAP.dll','?GetNodeText@CIITLinkComp@@','pointer',['pointer'])(ptr(w.id)).equals(ptr(id)));
+    for(const wire of owners){
+      const connection=basePointer(ptr(wire.id),'.?AVCElectricalConnectionBase@@');
+      method('SchematicCapture.dll','?UnSetUserNamed@CElectricalConnectionBase@@','void',['pointer'])(connection);
+      method('SchematicCapture.dll','?SetNetNameHidden@CElectricalConnectionBase@@','void',['pointer','uint8'])(connection,1);
+    }
+    method('Od101dll.dll','?DeleteComponent@CODDiagram@@','void',['pointer','pointer','pointer','int'])(diagram().graph,treeInstance(),ptr(id),0);
+    if(enumerate().objects.some(c=>c.id===id))throw new Error('Native generated net-label deletion failed: '+id);
+    return {deleted:true,id,generated_net_label:true,affected_wire_ids:owners.map(w=>w.id)};
+  }
   const symbol=components().components.find(c=>c.id===id);
   if(symbol)for(const wire of attachedWires(symbol,wires().wires))removeObject({id:wire.id});
   const list=Memory.alloc(256);
@@ -148,7 +159,8 @@ function removeObject(args) {
   try {
     method('SCH_CAP.dll','?DoDelete@CIITDiagram@@QAEHPAVCTreeInstance@@PAVCODCompList@@_N2222PAVCIITView@@PAVCNetSplitInfo@@@Z','int',['pointer','pointer','pointer',...Array(5).fill('uint8'),'pointer','pointer'])(diagram().graph,treeInstance(),list,0,1,0,0,0,activateSheet(),ptr(0));
   } finally {method('Od101dll.dll','??1CODCompList@@UAE@XZ','void',['pointer'])(list);}
-  return {deleted:!enumerate().objects.some(c=>c.id===id),id};
+  if(enumerate().objects.some(c=>c.id===id))throw new Error('Native deletion did not remove '+id+' ('+rtti(ptr(id)).name+'); deleting a generated net label requires changing its wire label settings');
+  return {deleted:true,id};
 }
 function updateAttachedGeometry(id,attached) {
   const c=component(id),pins=c.pins;
@@ -419,7 +431,7 @@ function generateRecord(record,args) {
   c=component(object.toString());
   const metadata=parameterInfo({ref:c.id});
   const body=symbolBodyBounds(c),actual=anchor==='pin'?c.pins.find(p=>p.name===args.pin):anchor==='center'?{x:(body.left+body.right)/2,y:(body.top+body.bottom)/2}:{x:c.transform[4],y:c.transform[5]};
-  const placement={anchor,...(anchor==='pin'?{pin:args.pin}:{}),requested:{x:args.x,y:args.y},actual:{x:actual.x,y:actual.y},origin:{x:c.transform[4],y:c.transform[5]},body_bounds:body};
+  const placement={coordinate_system:'sheet_units',pin_offsets:c.pins.map(p=>({name:p.name,dx:p.x-actual.x,dy:p.y-actual.y})),anchor,...(anchor==='pin'?{pin:args.pin}:{}),requested:{x:args.x,y:args.y},actual:{x:actual.x,y:actual.y},origin:{x:c.transform[4],y:c.transform[5]},body_bounds:body};
   const page=pageGeometry(),offPage=body.left<0||body.top<0||body.right>page.width||body.bottom>page.height;
   const warnings=offPage?[{code:'outside_page',reference:c.ref,message:'Component is outside the page. Use fit_content or a region to include it in the exported image.'}]:[];
   for(const p of metadata.parameters)if(p.role==='value'&&p.value===null&&!p.expression?.trim())warnings.push({code:'unset_value',reference:c.ref,index:p.index,name:p.name,message:'Set the primary component value before analysis.'});
@@ -660,6 +672,20 @@ function nativeRouteInBounds(source,target){
 function orthogonalRoutePoints(s,t){
   const points=[{x:s.x,y:s.y},{x:s.x,y:t.y},{x:t.x,y:t.y}].filter((p,i,a)=>!i||p.x!==a[i-1].x||p.y!==a[i-1].y);
   if(points.length===1)points.push({...points[0]});return points;
+}
+function persistentWireLabel(id){
+  const connection=basePointer(ptr(id),'.?AVCElectricalConnectionBase@@');
+  const user_named=!!method('SchematicCapture.dll','?IsUserNamed@CElectricalConnectionBase@@','uint8',['pointer'])(connection);
+  if(!user_named)return null;
+  const container=method('SchematicCapture.dll','?GetNetContainerFromTreeInstance@CElectricalConnectionBase@@','pointer',['pointer'],'mscdecl')(treeInstance());
+  const proxy=Memory.alloc(128);
+  method('DrwEngine.dll','??0CTreeInstanceProxy@@QAE@PAVCTreeInstance@@@Z','pointer',['pointer','pointer'])(proxy,treeInstance());
+  try{
+    const value=Memory.alloc(64);
+    method('SchematicCapture.dll','?GetUserNamedName@CElectricalConnectionBase@@','pointer',['pointer','pointer','pointer','pointer'])(connection,value,container,proxy);
+    try{return {name:method('Library.dll','?GetCharString@CPoolString@@','pointer',['pointer'])(value).readUtf16String(),hidden:!!method('SchematicCapture.dll','?IsNetNameHidden@CElectricalConnectionBase@@','uint8',['pointer'])(connection)};}
+    finally{method('Library.dll','??1CPoolString@@','void',['pointer'])(value);}
+  }finally{method('DrwEngine.dll','??1CTreeInstanceProxy@@','void',['pointer'])(proxy);}
 }
 function nativeWireLabel(id){
   const wire=ptr(id),label=method('SCH_CAP.dll','?GetNodeText@CIITLinkComp@@','pointer',['pointer'])(wire),
@@ -1250,6 +1276,7 @@ function sequenceValue(value,bindings){
   }));
 }
 function validateSequenceOperation(op,a){
+  if(op==='remove'){for(const [alias,key] of [['object_id','id'],['component_ref','ref']])if(alias in a){if(key in a&&a[key]!==a[alias])throw new Error('Conflicting '+alias+' and '+key);a[key]=a[alias];delete a[alias];}}
   const required={place:['name','x','y'],move:['ref','dx','dy'],alignPin:['ref','pin','x','y'],moveLabel:['ref','x','y'],transform:['ref'],
     wire:['source','target'],connectEndpoint:['source','target'],route:['id','points'],autoWire:['id'],
     setParameter:['ref','index'],addText:['text','x','y'],labelWire:['id','name'],splitWire:['id','x','y'],

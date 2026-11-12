@@ -113,13 +113,15 @@ class NativeHost:
             except OSError as error:
                 check['error'] = str(error)
             checks.append(check)
+        attached=bool(self.process and self.process.poll() is None)
+        processes=[{'pid':p.pid,'name':p.name} for p in frida.get_local_device().enumerate_processes() if p.name.lower() in ('multisim','multisim.exe')]
         return {'available': (INSTALL / 'multisim.exe').is_file(),
                 'compatible': all(c['match'] for c in checks), 'profile_enforced': False,
                 'tested_version': manifest['version'],
                 'install': str(INSTALL), 'checks': checks, 'backend': 'private-native-cpp/frida',
                 'official_com': False, 'screenshot_or_mouse': False,
-                'running': bool(self.process and self.process.poll() is None),
-                'pid': self.process.pid if self.process else None}
+                'running':bool(processes) or attached,'session_attached':attached,'processes':processes,
+                'pid':self.process.pid if attached else processes[0]['pid'] if len(processes)==1 else None}
 
     def _own_job(self):
         handle = self.kernel.CreateJobObjectW(None, None)

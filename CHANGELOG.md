@@ -2,6 +2,9 @@
 
 ## 0.5.0
 
+- Verify persistent wire names and visibility independently of generated node text; report precise save differences.
+- Align batch deletion selectors, support generated net-label removal, honor source-save verification options and clarify placement anchors.
+
 - Edit existing `.ms14` sources directly and create new circuits at a specified filename. Normal save and close retain changes in the current document.
 - Configure and save 19 native analysis profiles and 44 solver options, with independent interactive and analysis settings.
 - Execute saved OP, AC and transient settings, including custom solver options.
