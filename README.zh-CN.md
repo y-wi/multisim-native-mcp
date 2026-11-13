@@ -2,16 +2,22 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-通过 Model Context Protocol 创建、编辑和仿真可继续修改的 NI Multisim 原生电路。
+通过 AI 助手创建、编辑和仿真 NI Multisim 原生电路的 MCP 服务。生成的 `.ms14` 文件可直接在 Multisim 中打开并继续编辑。
 
-- **原生电路编辑**：元件、命名引脚连线、分支、可修改的自由文本、标签、多图纸、子电路和内嵌 SPICE 模型。
-- **直接保存文件**：在指定路径新建电路，或直接修改已有 `.ms14` 源文件；正常关闭时保存修改，自动管理备份和恢复检查点。
-- **仿真设置持久保存**：支持 19 类原生分析配置与 44 项求解器选项，包括步长、误差容限、积分方法、收敛、温度和数字阈值。
-- **分析与测量**：直流工作点、瞬态、AC 扫频，RAW/CSV 导出，以及频率、占空比、增益、相位和数值判据。
-- **交互仿真**：启动、暂停、继续、停止，配置实时节奏，导出 LED 与数码管实际显示状态。
-- **自动化与导出**：连续电路工作流、参数扫描、可续跑的后台任务、PNG/BMP 原理图及中英文报告。
+- **搭建与编辑电路**：放置库元件、连接引脚和支点、布线、修改注释，管理图纸、子电路和层级端口。
+- **保存设计与设置**：直接修改已有文件，保留元件参数、内嵌 SPICE 模型、图纸属性和仿真配置。
+- **运行原生分析**：直流工作点、瞬态和 AC 分析，支持 RAW/CSV 结果、波形测量和参数扫描。
+- **控制交互仿真**：启动、暂停、继续和停止，设置实时节奏，捕获 LED 与数码管的实际显示状态。
+- **自动完成连续任务**：通过可续跑工作流串联编辑、分析、测量、保存和原理图导出。
 
-默认提供 81 个工具，旧别名保留兼容调用；首选入口与参数见[工具参考](docs/tools.md)。
+## 0.5.1 更新
+
+- 修改和删除自由文本，更新图纸属性、层级端口与分支支点。
+- 修复删除已连接层级端口后的文件保存，支持撤销和重做后的正常保存。
+- 单工具、批量编辑和工作流使用一致的选择参数，默认返回精简的元件参数。
+- 文档刷新后返回对象 ID 映射；保存校验失败时列出具体字段差异。
+
+完整变更见[更新日志](CHANGELOG.md)。
 
 ## 系统要求
 
@@ -24,13 +30,15 @@
 
 ## 安装
 
-在 PowerShell 中运行：
+在 PowerShell 中运行，安装服务并配置 Codex：
 
 ```powershell
 irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.5.1/install.ps1 | iex
 ```
 
-重启 Codex 后加载 `multisim_native`。更新已有安装时，下载并使用 `-Force` 重新安装：
+安装脚本会配置所需的 32 位 Python 环境及包依赖。重启 Codex 后加载 `multisim_native`。
+
+更新已有安装时，下载并使用 `-Force` 重新安装：
 
 ```powershell
 $installer = Join-Path $env:TEMP "multisim-native-install.ps1"
@@ -38,7 +46,13 @@ Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download
 & $installer -Force
 ```
 
-安装脚本支持以下选项：
+使用 DeepSeek Harness 时，向已下载的安装脚本指定目标配置：
+
+```powershell
+& $installer -Client dsh -Profile desktop
+```
+
+### 安装选项
 
 | 选项 | 用途 |
 | --- | --- |
@@ -48,24 +62,20 @@ Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download
 | `-ConfigPath <path>` | 指定客户端配置文件 |
 | `-Force` | 重新安装包 |
 
-DSH 配置自动重新加载 MCP 连接。其他客户端可使用安装后命令输出的 JSON：
+DSH 配置自动重新加载 MCP 连接。其他 MCP 客户端可使用 `-Client none`，将安装脚本输出的 JSON 填入客户端的服务配置。
+
+检查安装和 MCP 连接：
 
 ```powershell
 $mcp = Join-Path $env:LOCALAPPDATA "MultisimNativeMCP\bin\multisim-native-mcp.exe"
-& $mcp config
 & $mcp doctor --connect
 ```
 
-从源码安装时，克隆本仓库后运行 `.\install.ps1`。也可以直接安装 wheel：
-
-```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.1/multisim_native_mcp-0.5.1-py3-none-any.whl
-multisim-native-mcp configure
-```
+从源码安装时，克隆本仓库后运行 `.\install.ps1`。[发行页面](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.1)也提供 wheel、源码包和 `SHA256SUMS`。
 
 ## Agent 技能
 
-安装 [multisim-native skill](skills/multisim-native/SKILL.md)，提供电路工作流与原生仿真操作方法：
+可选的 [multisim-native skill](skills/multisim-native/SKILL.md) 为助手提供电路编辑与原生仿真操作方法。在 Codex 中安装：
 
 ```powershell
 $skillRoot = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "skills" } else { Join-Path $env:USERPROFILE ".codex\skills" }
@@ -74,7 +84,7 @@ Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download
 Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 ```
 
-重启 Codex 后，通过 `$multisim-native` 调用，或直接描述 Multisim 任务。从源码安装时，也可将 `skills/multisim-native` 复制到同一技能目录。
+重启 Codex 后，通过 `$multisim-native` 调用，或直接描述 Multisim 任务。其他支持 skill 的客户端可将压缩包解压到各自的技能目录，保留 `multisim-native` 文件夹。从源码安装时，也可直接复制 `skills/multisim-native`。
 
 ## 使用
 
@@ -98,7 +108,7 @@ Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 
 正常保存使用 `native_save_source`。`native_close_copy` 先保存待保存的修改，再关闭自有会话或从已有窗口断开。`native_save_copy(output_path)` 用于另存为；`native_open_copy` 用于创建独立对照副本。保存当前文件无需额外覆盖标志，替换其他已有文件使用 `overwrite:true`。
 
-文件位置由当前任务确定，MCP 不配置全局工程目录。
+文件位置由每次请求指定，备份和恢复检查点自动管理。
 
 ### 保存仿真设置
 
@@ -116,7 +126,7 @@ Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 
 `native_run_workflow` 连续完成编辑、分析、数值判据、保存和导出。使用 `native_workflow_status` 查询进度，使用 `native_control_workflow` 取消或续跑。独立数值分析使用 `native_start_analysis`、`native_analysis_status` 和 `native_control_analysis`。
 
-工作流默认不设总时限；`max_runtime` 可指定时限，状态等待参数只决定何时返回响应。编辑批量、采样数量与导出尺寸不设 MCP 工作量上限，实际容量由原生数据格式及可用资源决定。客户端请求超时由客户端配置。
+长任务在后台持续运行，客户端可读取进度。工作流默认不设总时限；需要时可用 `max_runtime` 指定。
 
 [工作流指南](docs/workflows.md) · [完整分压电路请求](skills/multisim-native/assets/workflow_divider.json) · [Python 示例](examples/voltage_divider.py)
 
@@ -126,6 +136,16 @@ Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 - [仿真设置与持久保存](docs/persistence.md)
 - [测量、扫描与报告](docs/experiments.md)
 - [全部工具](docs/tools.md)
+
+工具参考包含推荐的连线和删除入口、批量选择参数、完整参数读取方法以及对象 ID 映射。已有工具别名继续兼容。
+
+## 常见问题
+
+- **找不到 Multisim**：重新运行安装脚本，通过 `-MultisimPath` 指向包含 `Multisim.exe` 的目录。
+- **客户端未显示服务**：重启或重新连接客户端，再使用上面的命令运行 `doctor --connect`。
+- **操作失败**：根据返回的错误详情定位对象或设置；保存校验错误会列出差异字段和诊断文件路径。
+
+可通过 [GitHub Issues](https://github.com/y-wi/multisim-native-mcp/issues) 提交可复现的问题。
 
 ## 配置
 

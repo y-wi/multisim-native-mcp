@@ -2,16 +2,22 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Create, edit and simulate editable NI Multisim circuits through the Model Context Protocol.
+An MCP server for creating, editing and simulating native NI Multisim circuits from an AI assistant. Circuits remain editable `.ms14` files that open directly in Multisim.
 
-- **Native circuit editing:** components, named-pin wiring, branches, editable free text, labels, sheets, subcircuits and embedded SPICE models.
-- **Direct file saving:** create a circuit at a chosen path or edit an existing `.ms14` file in place. Normal close saves pending changes; backups and recovery checkpoints are managed automatically.
-- **Persistent simulation settings:** configure 19 native analysis profiles and 44 solver options, including time steps, tolerances, integration, convergence, temperature and digital thresholds.
-- **Analysis and measurements:** DC operating point, transient and AC sweeps, RAW/CSV output, frequency, duty cycle, gain, phase and numeric criteria.
-- **Interactive simulation:** start, pause, resume and stop; configure real-time pacing and export actual LED/display states.
-- **Automation and export:** dependent workflows, parameter sweeps, resumable background jobs, PNG/BMP schematics and bilingual reports.
+- **Build and edit circuits:** place library components, connect pins and junctions, route wires, edit annotations, and manage sheets, subcircuits and hierarchical ports.
+- **Save designs and settings:** edit existing files in place and retain component values, embedded SPICE models, sheet properties and simulation configuration.
+- **Run native analysis:** DC operating point, transient and AC analysis, with RAW/CSV results, waveform measurements and parameter sweeps.
+- **Control interactive simulation:** start, pause, resume and stop simulation, set real-time pacing, and capture actual LED and display states.
+- **Automate complete tasks:** combine edits, analysis, measurements, saves and schematic exports in resumable workflows.
 
-The default catalog provides 81 tools, with older aliases retained for compatible calls. See the [tool reference](docs/tools.md) for preferred entry points and parameters.
+## What's new in 0.5.1
+
+- Edit and delete free text; update sheet properties, hierarchical ports and branch junctions.
+- Save hierarchical circuits correctly after deleting connected ports, including after undo and redo.
+- Use consistent selectors across individual tools, edit batches and workflows, with concise parameter responses.
+- Receive object ID mappings after document refreshes and detailed field differences when save verification fails.
+
+See the [changelog](CHANGELOG.md) for all changes.
 
 ## Requirements
 
@@ -24,13 +30,15 @@ The default catalog provides 81 tools, with older aliases retained for compatibl
 
 ## Install
 
-Run in PowerShell:
+Run in PowerShell to install the server and configure Codex:
 
 ```powershell
 irm https://raw.githubusercontent.com/y-wi/multisim-native-mcp/v0.5.1/install.ps1 | iex
 ```
 
-Restart Codex to load `multisim_native`. To update an existing installation, download and run the installer with `-Force`:
+The installer sets up the required 32-bit Python environment and package dependencies. Restart Codex to load `multisim_native`.
+
+To update an existing installation, download and run the installer with `-Force`:
 
 ```powershell
 $installer = Join-Path $env:TEMP "multisim-native-install.ps1"
@@ -38,7 +46,13 @@ Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download
 & $installer -Force
 ```
 
-The installer accepts these options:
+For DeepSeek Harness, run the downloaded installer with the target profile:
+
+```powershell
+& $installer -Client dsh -Profile desktop
+```
+
+### Installation options
 
 | Option | Purpose |
 | --- | --- |
@@ -48,24 +62,20 @@ The installer accepts these options:
 | `-ConfigPath <path>` | Select a client configuration file |
 | `-Force` | Reinstall the package |
 
-DSH profiles reload the MCP connection automatically. Other clients can use the JSON returned by the installed command:
+DSH profiles reload the MCP connection automatically. For another MCP client, use `-Client none` and copy the JSON printed by the installer into that client's server configuration.
+
+Check the installation and MCP connection:
 
 ```powershell
 $mcp = Join-Path $env:LOCALAPPDATA "MultisimNativeMCP\bin\multisim-native-mcp.exe"
-& $mcp config
 & $mcp doctor --connect
 ```
 
-For source installation, clone this repository and run `.\install.ps1`. To install the wheel directly:
-
-```powershell
-uv tool install --force --python cpython-3.12-windows-x86-none https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.1/multisim_native_mcp-0.5.1-py3-none-any.whl
-multisim-native-mcp configure
-```
+For source installation, clone this repository and run `.\install.ps1`. The [release page](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.1) also provides a wheel, source archive and `SHA256SUMS`.
 
 ## Agent skill
 
-Install the [multisim-native skill](skills/multisim-native/SKILL.md) for circuit workflows and native simulation guidance:
+The optional [multisim-native skill](skills/multisim-native/SKILL.md) gives the assistant circuit editing and native simulation guidance. Install it for Codex with:
 
 ```powershell
 $skillRoot = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "skills" } else { Join-Path $env:USERPROFILE ".codex\skills" }
@@ -74,7 +84,7 @@ Invoke-WebRequest "https://github.com/y-wi/multisim-native-mcp/releases/download
 Expand-Archive -LiteralPath $skillArchive -DestinationPath $skillRoot -Force
 ```
 
-Restart Codex, then invoke `$multisim-native` or describe a Multisim task. From a source checkout, copy `skills/multisim-native` into the same skills directory.
+Restart Codex, then invoke `$multisim-native` or describe a Multisim task. For another skill-enabled client, extract the archive into its skills directory, keeping the `multisim-native` folder. From a source checkout, copy `skills/multisim-native` instead.
 
 ## Use
 
@@ -98,7 +108,7 @@ Pass that request to `native_create_circuit`. For an existing circuit, call `nat
 
 Use `native_save_source` for normal saves. `native_close_copy` saves pending edits before closing an owned session or detaching from an existing window. `native_save_copy(output_path)` performs Save As, while `native_open_copy` creates a separate comparison document. Saving the current document does not require an overwrite flag; replacing another existing file uses `overwrite:true`.
 
-The calling task chooses file locations. The server does not configure a global project directory.
+Choose file locations in each request. Recovery backups and checkpoints are managed automatically.
 
 ### Save simulation settings
 
@@ -116,7 +126,7 @@ Use `native_simulation_settings` to discover and edit analysis profiles and solv
 
 `native_run_workflow` combines editing, analysis, numeric criteria, saving and export. Read progress with `native_workflow_status`; cancel or resume with `native_control_workflow`. Individual analysis jobs use `native_start_analysis`, `native_analysis_status` and `native_control_analysis`.
 
-Workflows have no default runtime deadline. `max_runtime` sets an optional deadline; status waits only control when a response returns. Editing batches, sample counts and export sizes have no MCP workload quotas; native data formats and available resources determine capacity. Client request timeouts are configured by the client.
+Long runs continue in the background while the client reads progress. Workflows have no default runtime deadline; set `max_runtime` when a deadline is needed.
 
 [Workflow guide](docs/workflows.md) · [Complete divider request](skills/multisim-native/assets/workflow_divider.json) · [Python example](examples/voltage_divider.py)
 
@@ -126,6 +136,16 @@ Workflows have no default runtime deadline. `max_runtime` sets an optional deadl
 - [Simulation settings and persistence](docs/persistence.md)
 - [Measurements, sweeps and reports](docs/experiments.md)
 - [All tools](docs/tools.md)
+
+The tool reference covers preferred connection and deletion tools, batch selectors, full parameter reads and object ID mappings. Existing tool aliases remain compatible.
+
+## Troubleshooting
+
+- **Multisim is not found:** rerun the installer with `-MultisimPath` pointing to the directory containing `Multisim.exe`.
+- **The client does not list the server:** restart or reconnect the client, then run `doctor --connect` using the command above.
+- **An operation fails:** use the returned error details to identify the affected object or setting. Save-verification errors include the differing fields and a diagnostic file path.
+
+Report reproducible issues through [GitHub Issues](https://github.com/y-wi/multisim-native-mcp/issues).
 
 ## Configuration
 
