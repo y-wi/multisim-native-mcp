@@ -38,7 +38,8 @@ def test_installed_package_stdio(tmp_path):
                 assert 'params' in place_tool.input_schema['properties']
                 save_tool=next(t for t in listed.tools if t.name=='native_save_source')
                 assert save_tool.input_schema['properties']['verify']['default'] is True
-                assert len(names)==86
+                assert len(names)==91
+                assert {'native_list_instruments','native_place_instrument','native_get_instrument_settings','native_set_instrument_settings','native_export_instrument_data'} <= names
                 assert {'native_get_connectivity','native_resolve_signal','native_run_dc_sweep','native_fit_sheet','native_plot_waveform'} <= names
                 assert {'native_list_texts','native_update_text','native_update_sheet','native_update_hierarchical_port','native_move_junction'} <= names
                 assert {'native_connect_pins','native_delete_text'}.isdisjoint(names)
@@ -72,7 +73,7 @@ def test_packaged_resources():
     assert len(profile['modules'])==15
     assert all(len(value)==64 for value in profile['modules'].values())
     assert (RESOURCE_DIR/'assets/blank14.3.ms14').stat().st_size > 32
-    for name in ['host_agent.js','editor_agent.js','simulation_settings.js','startup_agent.js']:
+    for name in ['host_agent.js','editor_agent.js','instruments_agent.js','simulation_settings.js','startup_agent.js']:
         assert (RESOURCE_DIR/name).stat().st_size > 100
 
 
@@ -83,5 +84,5 @@ def test_connection_check_does_not_change_existing_experiment_records(tmp_path,m
     record.write_bytes(raw)
     monkeypatch.setenv('MULTISIM_NATIVE_DATA_DIR',str(tmp_path))
     result=asyncio.run(check_connection())
-    assert result['tool_count']==86 and result['server_version']=='0.5.4'
+    assert result['tool_count']==91 and result['server_version']=='0.5.4'
     assert record.read_bytes()==raw

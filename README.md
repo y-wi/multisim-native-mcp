@@ -2,7 +2,7 @@
 
 English · [简体中文](README.zh-CN.md)
 
-Multisim Native MCP connects an AI assistant to NI Multisim on Windows. Build and edit schematics, run native simulations, and save designs as editable `.ms14` files.
+Multisim Native MCP connects an AI assistant to NI Multisim on Windows. Build and edit schematics—including all 19 native right-hand Instruments toolbar virtual instruments—run native simulations, and save designs as editable `.ms14` files.
 
 ## What's new in v0.5.4
 
@@ -84,15 +84,68 @@ Reload MCP servers (or restart your harness) after configuration. The server app
 The `multisim-native` skill follows the open [Agent Skills (`SKILL.md`) specification](https://agentskills.io/) and is bundled directly inside the package wheel—no separate download is required. It includes:
 
 - [SKILL.md](skills/multisim-native/SKILL.md) — workflow-first guidance and native Multisim pitfalls
-- [references/editing.md](skills/multisim-native/references/editing.md) — verified Multisim 14.3 22-part pin/parameter/spacing cheat sheet
+- [references/editing.md](skills/multisim-native/references/editing.md) — verified Multisim 14.3 22-part pin/parameter/spacing cheat sheet and 19-instrument terminal & settings reference
 - [references/workflows.md](skills/multisim-native/references/workflows.md) & [references/analysis.md](skills/multisim-native/references/analysis.md)
 - Ready-to-adapt templates in `skills/multisim-native/assets/` (voltage divider, RC AC filter, interactive indicators)
 
 For harnesses that do not read local `SKILL.md` directories (such as Claude Desktop or custom MCP hosts), the server also exposes the same guides as MCP resources (`multisim://skill/SKILL.md`, `multisim://skill/references/editing.md`, `multisim://skill/references/workflows.md`, `multisim://skill/references/analysis.md`).
 
+## Virtual instruments (Instruments toolbar)
+
+Multisim's right-hand Instruments toolbar devices are native snap-in instruments rather than Master Database library parts. Multisim Native MCP supports all **19** active toolbar instruments directly through Multisim's official C++ APIs (no GUI clicking, no hardcoded RVAs, no `.ms14` binary patching), with full undo/redo, batch/workflow execution, live interactive readouts, trace export, and native save-reopen verification:
+
+| Category | Supported instruments (RefDes) | Highlights |
+| --- | --- | --- |
+| Analog meters & sources | Multimeter (`XMM`), Function Generator (`XFG`), Wattmeter (`XWM`), Current Probe (`XCP`) | Friendly mode/waveform/frequency/amplitude/ratio settings; live `XMM`/`XWM` interactive readouts; automatic SPICE impedance update on meter mode switch |
+| Time & frequency scopes | 2-Ch Oscilloscope (`XSC`), 4-Ch Oscilloscope (`XSC`), Bode Plotter (`XBP`), Frequency Counter (`XFC`) | Timebase, per-channel scale/coupling/offset, trigger & sweep settings; native `.scp` (scope) and `.bod` (Bode) trace export |
+| Digital & RF analyzers | Word Generator (`XWG`), Logic Converter (`XLC`), Logic Analyzer (`XLA`), IV Analyzer (`XIV`), Distortion Analyzer (`XDA`), Spectrum Analyzer (`XSA`), Network Analyzer (`XNA`) | Friendly settings + raw `NI_EWB_*` property paths (including nested maps/arrays); live `XDA` interactive readout |
+| Benchtop instruments | Agilent 33120A (`XFG`), Agilent 34401A (`XMM`), Agilent 54622D (`XSC`), Tektronix TDS 2024 (`XSC`) | Native benchtop placement, pin maps, front-panel/channel settings, and live `34401A` readouts |
+
+Dedicated MCP tools (also accepted in `native_edit_batch` and `native_run_workflow` as `place_instrument` and `set_instrument_settings`; `native_search_library` also hints matching toolbar instruments):
+
+- `native_list_instruments(query)` — search all 19 instruments by English/Chinese name, alias, or RefDes; inspect pins, friendly settings, DLL availability, and placed instances.
+- `native_place_instrument(instrument, x, y, ..., settings)` — place any toolbar instrument natively and optionally configure its initial settings in one undoable edit.
+- `native_get_instrument_settings(component_ref, include_raw)` / `native_set_instrument_settings(component_ref, settings, include_raw)` — read and update friendly settings (or raw `NI_EWB_*` nested paths) with readback verification and `.ms14` persistence.
+- `native_export_instrument_data(component_ref, output_path, overwrite)` — export captured `.scp` (2-Ch/4-Ch Oscilloscope) or `.bod` (Bode Plotter) waveform files after interactive simulation.
+
+Example (`native_place_instrument` + `native_set_instrument_settings`):
+
+```json
+{
+  "instrument": "function_generator",
+  "x": 180,
+  "y": 180,
+  "reference": "XFG1",
+  "settings": {
+    "waveform": "square",
+    "frequency_hz": 1000,
+    "amplitude_vp": 5,
+    "duty_cycle_pct": 40,
+    "offset_v": 2.5
+  }
+}
+```
+
+```json
+{
+  "component_ref": "XSC1",
+  "settings": {
+    "timebase_scale_s_per_div": 0.0005,
+    "channel_a_scale_v_per_div": 2,
+    "channel_a_coupling": "DC",
+    "trigger_edge": "rising",
+    "trigger_level_v": 2.5
+  }
+}
+```
+
+During interactive simulation, call `native_interactive_status(include_displays=true)` to inspect live `instrument_readouts` alongside LEDs and seven-segment displays. See [Schematic editing — Virtual instruments](docs/schematic.md#virtual-instruments--虚拟仪器右侧仪器栏) and [Tool reference](docs/tools.md).
+
 ## Use Multisim from your assistant
 
 > Create a 10 V divider with two 1 kΩ resistors. Sweep the supply from 0 to 10 V, export the midpoint voltage as CSV, and save the circuit as `divider.ms14`.
+
+> Place a Function Generator (1 kHz, 5 Vp square wave), a 2-Ch Oscilloscope (500 µs/div, Ch A 2 V/div DC), and a DC Voltmeter across a 1 kΩ load. Run interactive simulation, read the live multimeter value, export the scope `.scp` waveform, and save as `scope_demo.ms14`.
 
 > Open my amplifier circuit, run an AC analysis, and export a PNG Bode plot of the output relative to the input.
 

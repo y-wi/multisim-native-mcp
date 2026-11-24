@@ -8,6 +8,38 @@ from multisim_native_mcp.service import EditorService, NativeEditError
 pytestmark=pytest.mark.native
 
 
+def test_current_probe_labels_are_restored_from_saved_ratios(tmp_path):
+    host = EditorService()
+    source = tmp_path / 'current-probes.ms14'
+
+    def value_label(ref):
+        return next(label for label in host.call('componentLabels', {'ref': ref})['labels']
+                    if label['kind'] == 'value')
+
+    try:
+        host.create('Current probe label round trip', str(source))
+        host.place_instrument('current_probe', 270, 180, reference='XCP1')
+        host.place_instrument('current_probe', 540, 180, reference='XCP2')
+        host.set_instrument_settings('XCP2', {'ratio_v_per_ma': 0.5})
+        host.history('undo')
+        assert value_label('XCP2')['text'] == '1 V/mA'
+        host.history('redo')
+        assert value_label('XCP2')['text'] == '500 mV/mA'
+        host.edit('moveLabel', {'ref': 'XCP2', 'kind': 'value', 'x': 620, 'y': 216})
+        label_transform = value_label('XCP2')['transform']
+
+        assert host.save_source(verify=True)['verification']['passed']
+        host.close()
+        reopened = host.open_circuit(str(source))
+        assert not reopened['modified']
+        for ref, ratio, text in [('XCP1', 1, '1 V/mA'), ('XCP2', 0.5, '500 mV/mA')]:
+            assert host.get_instrument_settings(ref)['settings']['ratio_v_per_ma'] == ratio
+            assert value_label(ref)['text'] == text
+        assert value_label('XCP2')['transform'] == label_transform
+    finally:
+        host.close()
+
+
 def test_anchor_value_labels_frames_analysis_and_rollback(tmp_path):
     h=EditorService()
     try:

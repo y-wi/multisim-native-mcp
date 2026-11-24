@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add native support for all 19 right-hand Instruments toolbar virtual instruments (Multimeter, Function Generator, Wattmeter, 2-Ch/4-Ch Oscilloscope, Bode Plotter, Frequency Counter, Word Generator, Logic Converter, Logic Analyzer, IV Analyzer, Distortion Analyzer, Spectrum Analyzer, Network Analyzer, Agilent 33120A/34401A/54622D, Tektronix TDS 2024, and Current Probe) using Multisim's exported C++ APIs without GUI automation or hardcoded RVAs.
+- Add 5 dedicated MCP tools (`native_list_instruments`, `native_place_instrument`, `native_get_instrument_settings`, `native_set_instrument_settings`, `native_export_instrument_data`), expanding the default catalog to 91 tools, plus `matching_instruments` hints in `native_search_library`.
+- Support virtual instrument placement and configuration inside `native_edit_batch` and `native_run_workflow` (`place_instrument` / `set_instrument_settings`), live `instrument_readouts` in `native_interactive_status(include_displays=true)`, `.scp`/`.bod` trace export, and full `.ms14` save-reopen verification of persistent instrument settings.
+
 ## 0.5.4
 
 - Detect installed MCP clients from the Windows installer and register the server in one or more supported clients. Add CLI commands to list clients and install the skill separately.

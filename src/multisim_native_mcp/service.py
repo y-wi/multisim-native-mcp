@@ -20,19 +20,27 @@ import uuid
 import frida
 from PIL import Image
 
-from .bridge import NativeHost, ROOT, INSTALL, sha256, editor_script
+from .bridge import NativeHost, ROOT, INSTALL, sha256, editor_script, install_dir
 from .paths import DATA_DIR
 from .edit_contracts import normalize_edit
 from .identity import identity_changes
+from .instruments import (
+    compile_instrument_settings,
+    filter_persistent_instrument_props,
+    format_instrument_settings,
+    lookup_by_native,
+    resolve_instrument,
+    search_instruments,
+)
 
 # Native exports use their actual bitmap format and allocator bounds.
 Image.MAX_IMAGE_PIXELS = None
 
-MUTATIONS = {'wire','move','moveLabel','place','copy','remove','transform','route','setParameter','setModelText',
+MUTATIONS = {'wire','move','moveLabel','place','placeInstrument','setInstrumentSettings','copy','remove','transform','route','setParameter','setModelText',
              'rename','addText','updateText','deleteText','updateSheet','moveJunction','updatePort','labelWire','splitWire','connectEndpoint','reconnect',
              'replace','createSheet','createSubcircuit','createPort','sheetTitle','sheetSize','repairWireGeometry',
              'autoWire','connectTouching','fitSheet','translateSheet'}
-TOPOLOGY_MUTATIONS={'wire','place','copy','remove','connectEndpoint','reconnect','replace','splitWire',
+TOPOLOGY_MUTATIONS={'wire','place','placeInstrument','copy','remove','connectEndpoint','reconnect','replace','splitWire',
                     'createSheet','createSubcircuit','createPort','updatePort','rename','connectTouching','labelWire'}
 
 
@@ -166,7 +174,11 @@ class EditorService(NativeHost):
                       'components':order([{'ref':c['ref'],'transform':c['transform'],
                           'pins':order([{'name':p['name'],'x':p['x'],'y':p['y']} for p in c['pins']]),
                           'labels':[{k:l[k] for k in ('kind','text', 'transform' if 'transform' in l else 'center')} for l in c.get('labels',[])],
-                          'parameters':c.get('parameters',[]),'model_text':c.get('model_text')} for c in s['components']]),
+                          'parameters':c.get('parameters',[]),
+                          'model_text':None if c.get('is_instrument') else c.get('model_text'),
+                          **({'is_instrument':True,'instrument_type':c.get('instrument_type'),
+                              'instrument_settings':filter_persistent_instrument_props(c.get('instrument_properties'))}
+                             if c.get('is_instrument') else {})} for c in s['components']]),
                       'wires':order([{'source':endpoint(w['source']),'target':endpoint(w['target']),'points':w['points']} for w in s['wires']]),
                       'annotations':order(s.get('annotations',[])),
                       'wire_labels':order(s.get('wire_labels',[])),
@@ -472,13 +484,173 @@ class EditorService(NativeHost):
     def fit_sheet(self, margin: int = 36, resize: bool = True) -> dict:
         return self.edit('fitSheet',{'margin':margin,'resize':resize})
 
+    def _prepare_instrument_op(self, op_name: str, raw_args: dict) -> dict:
+        args = dict(raw_args)
+        if op_name == 'placeInstrument':
+            entry = resolve_instrument(args.get('instrument', ''))
+            args['instrument'] = entry['instrument']
+            args['dll'] = entry['dll']
+            args['manager'] = entry['manager']
+            args['res_id'] = entry['res_id']
+            args['flags'] = entry['flags']
+            args['create_kind'] = entry['create_kind']
+            settings = args.pop('settings', None)
+            if settings is not None:
+                if not isinstance(settings, dict):
+                    raise ValueError('settings must be a mapping')
+                if settings:
+                    args['writes'] = compile_instrument_settings(entry, settings)
+            return args
+        if op_name == 'setInstrumentSettings':
+            if 'writes' in args and args['writes']:
+                return args
+            settings = args.pop('settings', None)
+            if not isinstance(settings, dict) or not settings:
+                raise ValueError('setInstrumentSettings requires a non-empty settings mapping')
+            info = self.call('getInstrumentSettings', {'ref': args['ref']})
+            entry = lookup_by_native(info.get('instrument_manager'), info.get('instrument_type'))
+            args['writes'] = compile_instrument_settings(entry, settings)
+            return args
+        return args
+
+    @staticmethod
+    def _format_instrument_result(op_name: str, raw_result: dict, include_raw: bool = False) -> dict:
+        if op_name not in ('placeInstrument', 'setInstrumentSettings') or not isinstance(raw_result, dict):
+            return raw_result
+        entry = lookup_by_native(raw_result.get('instrument_manager'), raw_result.get('instrument_type'))
+        raw_props = raw_result.pop('raw_properties', None)
+        formatted = format_instrument_settings(entry, raw_props or {}, include_raw=include_raw)
+        enriched = {
+            **raw_result,
+            'instrument': entry['instrument'] if entry else (raw_result.get('instrument_manager') or '').lower(),
+            'display_name': entry['display_name'] if entry else raw_result.get('instrument_type'),
+            'pin_map': entry['pin_map'] if entry else {},
+            **formatted,
+        }
+        if 'component' in enriched and isinstance(enriched['component'], dict) and entry:
+            enriched['component'] = {**enriched['component'], 'instrument': entry['instrument']}
+        return enriched
+
+    def list_instruments(self, query: str = '') -> dict:
+        if not isinstance(query, str) or '\0' in query:
+            raise ValueError('query must be a string')
+        install = install_dir()
+        catalog = []
+        for item in search_instruments(query):
+            dll_path = install / item['dll']
+            catalog.append({**item, 'dll_present': dll_path.is_file()})
+        result = {
+            'query': query,
+            'count': len(catalog),
+            'instruments': catalog,
+            'session_attached': bool(self.agent),
+        }
+        with self.lock:
+            if self.agent:
+                placed = []
+                for inst in self.call('listPlacedInstruments')['instruments']:
+                    entry = lookup_by_native(inst.get('instrument_manager'), inst.get('instrument_type'))
+                    raw_props = inst.pop('raw_properties', None) or {}
+                    formatted = format_instrument_settings(entry, raw_props, include_raw=False)
+                    placed.append({
+                        **inst,
+                        'instrument': entry['instrument'] if entry else inst.get('instrument_manager'),
+                        'display_name': entry['display_name'] if entry else inst.get('instrument_type'),
+                        'pin_map': entry['pin_map'] if entry else {},
+                        'settings': formatted['settings'],
+                        **({'readouts': formatted['readouts']} if 'readouts' in formatted else {}),
+                    })
+                result['placed_instruments'] = placed
+        return result
+
+    def place_instrument(self, instrument: str, x: int, y: int, reference: str | None = None,
+                         anchor: str = 'origin', pin: str | None = None,
+                         angle: float | None = None, mirror_axis: str | None = None,
+                         settings: dict | None = None, include_raw: bool = False) -> dict:
+        args = {'instrument': instrument, 'x': x, 'y': y, 'anchor': anchor}
+        if reference is not None:
+            args['ref'] = reference
+        if pin is not None:
+            args['pin'] = pin
+        if angle is not None:
+            args['angle'] = angle
+        if mirror_axis is not None:
+            args['mirror_axis'] = mirror_axis
+        if settings is not None:
+            args['settings'] = settings
+        if include_raw:
+            args['_include_raw'] = True
+        return self.edit('placeInstrument', args)
+
+    def get_instrument_settings(self, component_ref: str, include_raw: bool = False) -> dict:
+        if not isinstance(component_ref, str) or not component_ref.strip() or '\0' in component_ref:
+            raise ValueError('Provide a nonempty component_ref')
+        if not isinstance(include_raw, bool):
+            raise ValueError('include_raw must be boolean')
+        with self.lock:
+            raw = self.call('getInstrumentSettings', {'ref': component_ref})
+        entry = lookup_by_native(raw.get('instrument_manager'), raw.get('instrument_type'))
+        raw_props = raw.pop('raw_properties', None) or {}
+        formatted = format_instrument_settings(entry, raw_props, include_raw=include_raw)
+        return {
+            **raw,
+            'instrument': entry['instrument'] if entry else raw.get('instrument_manager'),
+            'display_name': entry['display_name'] if entry else raw.get('instrument_type'),
+            'pin_map': entry['pin_map'] if entry else {},
+            **formatted,
+        }
+
+    def set_instrument_settings(self, component_ref: str, settings: dict, include_raw: bool = False) -> dict:
+        if not isinstance(component_ref, str) or not component_ref.strip() or '\0' in component_ref:
+            raise ValueError('Provide a nonempty component_ref')
+        if not isinstance(include_raw, bool):
+            raise ValueError('include_raw must be boolean')
+        args = {'ref': component_ref, 'settings': settings}
+        if include_raw:
+            args['_include_raw'] = True
+        return self.edit('setInstrumentSettings', args)
+
+    def export_instrument_data(self, component_ref: str, output_path: str, overwrite: bool = False) -> dict:
+        if not isinstance(component_ref, str) or not component_ref.strip() or '\0' in component_ref:
+            raise ValueError('Provide a nonempty component_ref')
+        if not isinstance(overwrite, bool):
+            raise ValueError('overwrite must be boolean')
+        with self.lock:
+            info = self.call('getInstrumentSettings', {'ref': component_ref})
+            entry = lookup_by_native(info.get('instrument_manager'), info.get('instrument_type'))
+            suffixes = set(entry.get('export_data_formats', [])) if entry else {'.scp', '.bod', '.txt'}
+            if not suffixes:
+                raise ValueError(f"{component_ref} ({entry['instrument']}) does not support native trace data export; supported instruments: oscilloscope (.scp), oscilloscope_4ch (.scp), bode_plotter (.bod)")
+            path = self.output_path(output_path, suffixes, overwrite)
+            result = self.call('exportInstrumentData', {'ref': component_ref, 'path': str(path)})
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError(f'Instrument {component_ref} did not produce trace data (start and run interactive simulation first to collect waveform samples)')
+        text = path.read_text(encoding='utf-8', errors='replace')
+        lines = text.splitlines()
+        return {
+            **result,
+            'instrument': entry['instrument'] if entry else info.get('instrument_manager'),
+            'bytes': path.stat().st_size,
+            'line_count': len(lines),
+            'preview': '\n'.join(lines[:25]),
+            'source': 'native instrument data exporter',
+        }
+
     def edit_sequence(self, operations, bindings, cancel=None):
         """One checkpoint for a phase; bounded UI-thread slices resolve intermediate results."""
         from .workflow_values import resolve,reference_roots
         operations=[self.normalize_edit(op) for op in operations]
-        packed={'place','move','alignPin','moveLabel','transform','wire','connectEndpoint','route','autoWire',
+        packed={'place','placeInstrument','move','alignPin','moveLabel','transform','wire','connectEndpoint','route','autoWire',
                 'setParameter','addText','updateText','deleteText','updateSheet','moveJunction','updatePort','labelWire','splitWire','rename','remove','connectTouching',
                 'sheetSize','sheetTitle','repairWireGeometry','fitSheet','translateSheet'}
+        def is_packed(op):
+            if op['operation'] == 'placeInstrument':
+                return 'settings' not in op.get('arguments', {})
+            if op['operation'] in packed:
+                return True
+            if op['operation'] == 'setInstrumentSettings':
+                return bool(op.get('arguments', {}).get('writes'))
+            return False
         with self.lock:
             if self.call('simulationInfo')['state'] in (1,2):
                 raise RuntimeError('Stop interactive simulation before editing')
@@ -489,14 +661,23 @@ class EditorService(NativeHost):
                 while index<len(operations):
                     if cancel and cancel.is_set():raise RuntimeError('Workflow cancelled between native edit slices')
                     end=index
-                    while end<min(index+8,len(operations)) and operations[end]['operation'] in packed:end+=1
+                    while end<min(index+8,len(operations)) and is_packed(operations[end]):end+=1
                     if end>index:
-                        roots=reference_roots(operations[index:end])
-                        value=self.call('editSequence',{'operations':operations[index:end],
+                        slice_ops=[]
+                        for raw_op in operations[index:end]:
+                            op_copy=dict(raw_op)
+                            if op_copy['operation']=='placeInstrument' and 'dll' not in op_copy.get('arguments',{}):
+                                op_copy['arguments']=self._prepare_instrument_op('placeInstrument',op_copy.get('arguments',{}))
+                            slice_ops.append(op_copy)
+                        roots=reference_roots(slice_ops)
+                        value=self.call('editSequence',{'operations':slice_ops,
                             'bindings':{k:v for k,v in current.items() if k in roots},'cancel_token':token})
                         if value['failed']:
                             index+=value['failed_operation_index'];raise RuntimeError(value['error'])
-                        results.extend(value['results']);current.update(value['bindings'])
+                        formatted_slice=[self._format_instrument_result(op['operation'],res) for op,res in zip(slice_ops,value['results'])]
+                        for op,res in zip(slice_ops,formatted_slice):
+                            if op.get('bind'):value['bindings'][op['bind']]=res
+                        results.extend(formatted_slice);current.update(value['bindings'])
                     else:
                         op=operations[index];a=resolve(op.get('arguments',{}),current)
                         previous_state=self.call('circuitState',{'include_parameters':True})
@@ -544,7 +725,7 @@ class EditorService(NativeHost):
             previous_identity=self.call('projectCircuitState')['states'] if may_refresh else None
             # Resolve the first existing target before saving or reopening anything.
             first=operations[0]
-            if first['operation'] in {'move','moveLabel','transform','copy','remove','setParameter','setModelText','rename','replace'} and first.get('arguments',{}).get('ref'):
+            if first['operation'] in {'move','moveLabel','transform','copy','remove','setParameter','setModelText','rename','replace','setInstrumentSettings'} and first.get('arguments',{}).get('ref'):
                 target=first['arguments']['ref'];components=self.call('components')['components']
                 matches=[c for c in components if target in (c['ref'],c['id'])] or [c for c in components if target==c.get('local_ref')]
                 if len(matches)!=1:
@@ -583,8 +764,12 @@ class EditorService(NativeHost):
                             raise RuntimeError(f'Component {target!r} could not be uniquely rebound after topology refresh')
                         results=remap_bindings(results,before_refresh,after_refresh)
                         operations[index+1:]=remap_bindings(operations[index+1:],before_refresh,after_refresh)
-                    else:args=op.get('arguments',{})
-                    results.append(self.call(op['operation'],args))
+                    else:args=dict(op.get('arguments',{}))
+                    include_raw=bool(args.pop('_include_raw',False))
+                    if op['operation'] in ('placeInstrument','setInstrumentSettings'):
+                        args=self._prepare_instrument_op(op['operation'],args)
+                    raw_res=self.call(op['operation'],args)
+                    results.append(self._format_instrument_result(op['operation'],raw_res,include_raw=include_raw))
                     self.topology_dirty=self.topology_dirty or changes_topology(op['operation'],results[-1])
                 self.call('markModified')
                 if any(op['operation']=='createSubcircuit' for op in operations):
@@ -730,7 +915,25 @@ class EditorService(NativeHost):
                 raise ValueError('Rotation must be finite')
             if 'axis' in args and args.get('axis') not in ('horizontal','vertical'):
                 raise ValueError('Invalid mirror axis')
-        if op in ('rename','place','copy','replace'):
+        if op=='placeInstrument':
+            entry=resolve_instrument(args.get('instrument',''))
+            if 'x' not in args or 'y' not in args:raise ValueError('placeInstrument requires x and y')
+            if args.get('anchor','origin') not in ('origin','center','pin'):raise ValueError('Placement anchor must be origin, center or pin')
+            if args.get('anchor')=='pin':
+                if not isinstance(args.get('pin'),str) or not args['pin']:raise ValueError('Placement with anchor=pin requires the exact pin name')
+                if args['pin'] not in entry['pin_map']:
+                    raise ValueError(f"Unknown anchor pin {args['pin']!r} for {entry['instrument']}; available pins: {', '.join(entry['pin_map'].keys())}")
+            if 'angle' in args and not _is_finite_number(args['angle']):raise ValueError('Rotation must be finite')
+            if 'mirror_axis' in args and args['mirror_axis'] not in ('horizontal','vertical'):raise ValueError('Invalid mirror axis')
+            if 'settings' in args and args['settings'] is not None:
+                if not isinstance(args['settings'],dict):raise ValueError('settings must be a mapping')
+                if args['settings']:compile_instrument_settings(entry,args['settings'])
+        if op=='setInstrumentSettings':
+            if not isinstance(args.get('ref'),str) or not args['ref'] or '\0' in args['ref']:raise ValueError('setInstrumentSettings requires component_ref/ref')
+            if 'writes' not in args:
+                if not isinstance(args.get('settings'),dict) or not args['settings']:
+                    raise ValueError('setInstrumentSettings requires a non-empty settings mapping')
+        if op in ('rename','place','placeInstrument','copy','replace'):
             for key in ('ref','new_ref'):
                 if key in args and (not isinstance(args[key],str) or not args[key] or '\0' in args[key]): raise ValueError('Invalid reference')
         if 'points' in args:

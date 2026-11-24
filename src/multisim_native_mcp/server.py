@@ -41,7 +41,7 @@ def checked(function):
                 raise RuntimeError('A native experiment is running; inspect or cancel it first')
             result=function(*args, **kwargs)
             options=signature.bind(*args,**kwargs).arguments
-            full=function.__name__=='native_get_parameters' or options.get('include_parameters') or options.get('detail')
+            full=function.__name__ in ('native_get_parameters','native_list_instruments','native_get_instrument_settings') or options.get('include_parameters') or options.get('include_raw') or options.get('detail')
             return result if full else compact_result(result)
         except (NativeEditError,NativeSaveError) as error:
             details={**error.details}
@@ -62,6 +62,7 @@ server = NativeMCPServer('multisim-native', version=__version__,
                    'For complete tasks, prefer native_run_workflow with dependent edits, analysis acceptance, save and export in one plan. '
                    'Use result bindings instead of intermediate ID queries and wait with native_workflow_status rather than frequent polling. '
                    'Read exact pin names before wiring; save results before closing. '
+                   'For right-hand toolbar virtual instruments (Oscilloscope, 4-Ch Oscilloscope, Function Generator, Multimeter, Bode Plotter, Wattmeter, Frequency Counter, Logic Analyzer, Word Generator, Agilent/Tektronix scopes, Current Probe, etc.), use native_list_instruments, native_place_instrument, native_get_instrument_settings, native_set_instrument_settings and native_export_instrument_data instead of library component tools. '
                    'For repeated power references, select a current component ID from the circuit state. '
                    'Use native_connect_endpoints for pin/junction wiring; native_connect_touching detects physical contacts. '
                    'Delete any object with native_delete_object; native_update_text edits free text in place. '
@@ -334,10 +335,58 @@ def native_create_circuit(output_path: str,title: str = 'Circuit') -> dict:
 @checked
 def native_search_library(query: str, limit: int | None = 20, family: str = '', group: str = '',
         manufacturer: str = '', simulatable_only: bool = False) -> dict:
-    """Search native component names and IDs with family, group, manufacturer and simulatable metadata. Optional family, group and manufacturer filters use exact names; simulatable_only excludes non-simulatable models."""
+    """Search native component names and IDs with family, group, manufacturer and simulatable metadata. Optional family, group and manufacturer filters use exact names; simulatable_only excludes non-simulatable models. When the query matches virtual instruments from the Instruments toolbar, matching_instruments is also included as a hint toward native_place_instrument."""
     if limit is not None and limit<1: raise ValueError('Invalid search size')
-    return host.call('librarySearch', {'query':query,'limit':limit,'family':family,'group':group,
+    result=host.call('librarySearch', {'query':query,'limit':limit,'family':family,'group':group,
         'manufacturer':manufacturer,'simulatable_only':simulatable_only})
+    if query.strip() and not family and not group and not manufacturer:
+        from .instruments import search_instruments
+        matched=[{'instrument':item['instrument'],'display_name':item['display_name'],'zh_name':item['zh_name'],
+                  'default_prefix':item['default_prefix'],'pin_map':item['pin_map']}
+                 for item in search_instruments(query)]
+        if matched:
+            result['matching_instruments']=matched
+            result['instrument_hint']='Virtual instruments from the Instruments toolbar are placed with native_place_instrument and configured with native_set_instrument_settings.'
+    return result
+
+
+@server.tool()
+@checked
+def native_list_instruments(query: str = '') -> dict:
+    """List supported NI Multisim virtual instruments from the right-hand Instruments toolbar (Multimeter, Function Generator, Wattmeter, 2-Ch/4-Ch Oscilloscope, Bode Plotter, Frequency Counter, Word Generator, Logic Converter, Logic Analyzer, IV Analyzer, Distortion Analyzer, Spectrum Analyzer, Network Analyzer, Agilent/Tektronix instruments, Current Probe), including canonical keys, aliases, pin terminal maps, friendly setting descriptors, DLL availability and (when a circuit is open) instruments currently placed on the selected sheet."""
+    return host.list_instruments(query)
+
+
+@server.tool()
+@checked
+def native_place_instrument(instrument: str, x: int, y: int, reference: str | None = None,
+        anchor: Literal['origin','center','pin'] = 'origin', pin: str | None = None,
+        angle: float | None = None, mirror_axis: Literal['horizontal','vertical'] | None = None,
+        settings: dict | None = None, include_raw: bool = False) -> dict:
+    """Place a native NI Multisim virtual instrument (e.g. oscilloscope, oscilloscope_4ch, function_generator, multimeter, bode_plotter, wattmeter, frequency_counter, logic_analyzer, word_generator, agilent_oscilloscope, tektronix_oscilloscope, current_probe; aliases and Chinese names accepted) onto the selected sheet through Multisim's native instrument factory and diagram drop pipeline. Optionally rotate/mirror, align by origin/center/pin, assign a custom reference, and apply initial settings (friendly names or native NI_EWB_* properties) in one undoable edit. Returns pins, pin_map, settings, placement bounds and warnings."""
+    return host.place_instrument(instrument,x,y,reference=reference,anchor=anchor,pin=pin,
+                                 angle=angle,mirror_axis=mirror_axis,settings=settings,include_raw=include_raw)
+
+
+@server.tool()
+@checked
+def native_get_instrument_settings(component_ref: str, include_raw: bool = False) -> dict:
+    """Read a placed virtual instrument's native configuration, friendly setting descriptors, pin terminal map, and live readouts (such as Multimeter display_value, Wattmeter power/power_factor, or Distortion Analyzer THD during interactive simulation). Set include_raw=true to inspect every native NI_EWB_* property including nested channel arrays and maps."""
+    return host.get_instrument_settings(component_ref,include_raw=include_raw)
+
+
+@server.tool()
+@checked
+def native_set_instrument_settings(component_ref: str, settings: dict, include_raw: bool = False) -> dict:
+    """Configure a placed virtual instrument through Multisim's native CDataElementMap and database update APIs with strict readback verification and atomic rollback on error. Accepts friendly setting names (e.g. oscilloscope timebase_scale_s_per_div, channel_a_scale_v_per_div, channel_a_coupling='DC', trigger_level_v; function_generator waveform='square', frequency_hz=1000, amplitude_vp=5, duty_cycle_pct=40, offset_v=2.5; multimeter mode='voltage', signal='DC'; 4-ch scope channel_a={scale_v_per_div:2, coupling:'DC'}) and/or raw native NI_EWB_* property paths (including indexed arrays and nested maps). Changes persist in .ms14 and are verified on native reopen."""
+    return host.set_instrument_settings(component_ref,settings,include_raw=include_raw)
+
+
+@server.tool()
+@checked
+def native_export_instrument_data(component_ref: str, output_path: str, overwrite: bool = False) -> dict:
+    """Export captured waveform/frequency data from a placed virtual instrument using Multisim's native data exporter: 2-channel Oscilloscope (.scp), 4-channel Oscilloscope (.scp), or Bode Plotter (.bod). Start and run interactive simulation first so the instrument collects samples."""
+    return host.export_instrument_data(component_ref,output_path,overwrite=overwrite)
 
 
 @server.tool()

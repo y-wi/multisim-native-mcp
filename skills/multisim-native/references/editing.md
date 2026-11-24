@@ -49,6 +49,32 @@ Sheet snap grid is **9** units (origin top-left, x right, y down, positive `angl
 | `DCD_HEX` (and `DCD_HEX_*`) | Bottom `4` (MSB) → `3` → `2` → `1` (LSB), left-to-right (step `18` units) | — |
 | `PROBE_DIG` (and `PROBE_DIG_*`) | `1` (single pin) | — |
 
+## Virtual instruments quick reference (Instruments toolbar)
+
+Place toolbar instruments with `native_place_instrument` (or batch/workflow `place_instrument`) and configure them with `native_set_instrument_settings` (or `set_instrument_settings`). All 19 active Multisim 14.3 toolbar instruments are supported; aliases (e.g. `scope`, `fgen`, `dmm`, `示波器`, `函数发生器`, `万用表`) are accepted.
+
+| Instrument (`instrument`) | Prefix | Verified `pin_map` | Key friendly `settings` (raw `NI_EWB_*` also accepted) |
+| --- | --- | --- | --- |
+| `multimeter` | `XMM` | `1`: `+`, `2`: `-` | `mode` (`current`/`voltage`/`resistance`/`db`), `signal` (`AC`/`DC`) |
+| `function_generator` | `XFG` | `1`: `+`, `2`: `COM`, `3`: `-` | `waveform` (`sine`/`triangle`/`square`), `frequency_hz`, `duty_cycle_pct`, `amplitude_vp`, `offset_v`, `rise_fall_time_s` |
+| `wattmeter` | `XWM` | `1`: `V+`, `2`: `V-`, `3`: `I+`, `4`: `I-` | Live readouts: `power`, `power_factor` |
+| `oscilloscope` | `XSC` | `1`: `A+`, `4`: `A-`, `2`: `B+`, `5`: `B-`, `3`: `Ext Trig +`, `6`: `Ext Trig -` | `timebase_mode`, `timebase_scale_s_per_div`, `channel_a_coupling`/`channel_a_scale_v_per_div`/`channel_a_position_div`, `channel_b_*`, `trigger_source`/`trigger_edge`/`trigger_level_v`/`trigger_mode` |
+| `oscilloscope_4ch` | `XSC` | `1`: `A`, `2`: `B`, `3`: `C`, `4`: `D`, `5`: `T`, `6`: `G` | `timebase_scale_s_per_div`, `channel_a`..`channel_d` (`coupling`, `scale_v_per_div`, `position_div`, `sign`), `trigger_*` |
+| `bode_plotter` | `XBP` | `1`: `IN+`, `2`: `IN-`, `3`: `OUT+`, `4`: `OUT-` | `mode` (`magnitude`/`phase`), `horizontal_scale`/`vertical_scale` (`log`/`lin`), `horizontal_initial_hz`/`horizontal_final_hz`, `vertical_initial_db`/`vertical_final_db`, `resolution_points` |
+| `frequency_counter` | `XFC` | `1`: `IN` | `mode`, `coupling`, `sensitivity_vrms`, `trigger_level_v` |
+| `word_generator` | `XWG` | `1`..`32`: `Bit 0`..`31`, `33`: `R`, `34`: `T` | `mode`, `frequency_hz`, `level_low_v`, `level_high_v` |
+| `logic_converter` | `XLC` | `1`..`8`: `A`..`H`, `9`: `OUT` | `boolean_expression`, `num_variables` |
+| `logic_analyzer` | `XLA` | `1`..`16`: `CH1`..`CH16`, `17`: `C`, `18`: `Q`, `19`: `T` | `clock_source`, `clock_edge`, `internal_clock_rate_hz`, `threshold_voltage_v` |
+| `iv_analyzer` | `XIV` | `1`, `2`, `3` | `vertical_scale`, `horizontal_scale`, `current_*`, `voltage_*` |
+| `distortion_analyzer` | `XDA` | `1`: `IN` | `mode` (`thd`/`sinad`), `display_unit` (`percent`/`db`), `fundamental_frequency_hz`, `harmonics` |
+| `spectrum_analyzer` | `XSA` | `1`: `IN`, `2`: `T` | `span_mode`, `start_frequency_hz`, `end_frequency_hz`, `vertical_mode` |
+| `network_analyzer` | `XNA` | `1`: `P1`, `2`: `P2` | `start_frequency_hz`, `stop_frequency_hz`, `characteristic_impedance_ohm`, `points`, `sweep_type` |
+| `agilent_function_generator` | `XFG` | `1`: `Output`, `2`: `Sync` | `power_on` + raw `NI_EWB_*` |
+| `agilent_multimeter` | `XMM` | `1`: `HI`, `2`: `LO`, `3`: `I`, `4`/`5`: `4W Sense` | `power_on`, `mode`, `function` + raw `NI_EWB_*` |
+| `agilent_oscilloscope` | `XSC` | `1`: `CH1`, `2`: `CH2`, `3`: `Ext Trig`, `4`: `GND`, `5`: `Sync`, `6`..`21`: `D0`..`D15` | `power_on`, `channel_a_enabled`, `channel_b_enabled`, `trigger_level_*` + raw `NI_EWB_*` |
+| `tektronix_oscilloscope` | `XSC` | `1`..`4`: `CH1`..`CH4`, `5`: `T`, `6`: `P`, `7`: `G` | `power_on`, `trigger_level_v`, `channel_1_coupling`..`channel_4_invert` + raw `NI_EWB_*` |
+| `current_probe` | `XCP` | `1`: `I+`, `2`: `I-`, `3`: `Vout` | `ratio_v_per_ma` (`1.0` = `1 V/mA` = `1000 V/A`) |
+
 ## Placement transforms and displayed values
 
 All placement entry points support `angle` (finite degrees), `mirror_axis` (`horizontal` reverses x, `vertical` reverses y), and either primary `value` or `expression`. The order is rotate, mirror, then translate to the selected `origin`, body `center`, or named `pin` anchor. Positive rotation is clockwise in sheet coordinates (x right, y down). For an LED with A above K, -90 degrees places A on the left; +90 places A on the right. Returned `pins`, `labels` and `placement.pin_offsets` describe the final symbol. Preparation states this convention, with offsets relative to its center anchor.
@@ -85,6 +111,8 @@ Common batch operations:
 | Operation | Arguments |
 | --- | --- |
 | `place_component` | `name, reference, x, y`, optional `family, group, manufacturer, parameters, params, anchor, pin, angle, mirror_axis, value, expression` |
+| `place_instrument` | `instrument, x, y`, optional `reference, anchor, pin, angle, mirror_axis, settings` |
+| `set_instrument_settings` | `component_ref, settings` (friendly setting names or raw `NI_EWB_*` property paths) |
 | `set_parameter` | `component_ref`, optional `index, name, role` (defaults to unique `value` slot), exactly one of `value, expression` |
 | `connect_endpoints` | `source, target`, optional `points` |
 | `move_component` | `component_ref, dx, dy` (relative displacement) |

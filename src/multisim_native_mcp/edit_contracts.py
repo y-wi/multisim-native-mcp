@@ -2,6 +2,7 @@
 
 OPERATIONS={
     'place_component':'place','copy_component':'copy','delete_object':'remove',
+    'place_instrument':'placeInstrument','set_instrument_settings':'setInstrumentSettings',
     'move_component':'move','move_component_label':'moveLabel','transform_component':'transform',
     'route_wire':'route','auto_route_wire':'autoWire','connect_touching':'connectTouching',
     'connect_pins':'wire','connect_endpoints':'connectEndpoint','reconnect_wire':'reconnect',
@@ -14,7 +15,7 @@ OPERATIONS={
     'fit_sheet':'fitSheet','translate_sheet':'translateSheet',
 }
 COMPONENT_OPERATIONS={'copy','remove','move','alignPin','moveLabel','transform','setParameter',
-                      'setModelText','rename','replace'}
+                      'setModelText','rename','replace','setInstrumentSettings'}
 WIRE_OPERATIONS={'route','autoWire','reconnect','splitWire','labelWire'}
 OBJECT_OPERATIONS=WIRE_OPERATIONS|{'remove','updateText','deleteText','updatePort','moveJunction'}
 
@@ -39,7 +40,8 @@ def normalize_edit(operation):
     if name in OBJECT_OPERATIONS:rename_field(args,'object_id','id')
     if name in WIRE_OPERATIONS:rename_field(args,'wire_id','id')
     if name=='moveJunction':rename_field(args,'junction_id','id')
-    if name in ('place','createSubcircuit'):rename_field(args,'reference','ref')
+    if name in ('place','placeInstrument','createSubcircuit'):rename_field(args,'reference','ref')
+    if name=='placeInstrument':rename_field(args,'name','instrument')
     if name=='transform':rename_field(args,'mirror_axis','axis')
     if name=='setParameter':
         for key in ('index','name','role'):

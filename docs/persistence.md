@@ -47,7 +47,7 @@ Without `save_to_source`, changes remain in the editable native document: call `
 
 | Capability | Destination and behavior |
 | --- | --- |
-| Component values, expressions, embedded models, placements, labels, wires, ports, subcircuits, annotations, sheets and `native_fit_sheet` | Native document; save through `native_save_source` or `native_save_copy`. Model changes refresh every affected label before saving. |
+| Component values, expressions, virtual instruments and instrument settings, embedded models, placements, labels, wires, ports, subcircuits, annotations, sheets and `native_fit_sheet` | Native document; save through `native_save_source` or `native_save_copy`. Model changes refresh every affected label before saving; persistent instrument settings are verified on native reopen. |
 | Native page name | Saved using `SetPageName`; the root window caption still follows the filename after reopening. |
 | Grid, border and bounds | `native_configure_sheet_display` modifies the selected sheet's native preferences; save the document or pass `save_to_source:true`. |
 | Autowiring and movement thresholds | Native **application-wide** preferences. `native_configure_wiring(persist:true)` saves through Multisim and verifies reloading, after reloading. These are not `.ms14` fields; temporary mode remains the default. |

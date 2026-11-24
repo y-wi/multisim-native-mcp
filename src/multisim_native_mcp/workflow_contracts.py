@@ -144,7 +144,7 @@ class EditOperation(Contract):
             result['operation'] = {'fit_sheet': 'fitSheet', 'translate_sheet': 'translateSheet'}[result['operation']]
         return result
 
-    operation: Literal['place', 'copy', 'remove', 'move', 'alignPin', 'moveLabel', 'transform', 'route',
+    operation: Literal['place', 'placeInstrument', 'setInstrumentSettings', 'copy', 'remove', 'move', 'alignPin', 'moveLabel', 'transform', 'route',
                        'autoWire', 'connectTouching', 'wire', 'connectEndpoint', 'reconnect',
                        'splitWire', 'rename', 'setParameter', 'setModelText', 'addText', 'updateText', 'deleteText', 'updateSheet', 'moveJunction', 'updatePort',
                        'labelWire', 'replace', 'createSheet', 'createSubcircuit', 'createPort',

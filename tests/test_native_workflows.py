@@ -56,6 +56,36 @@ def test_native_workflow_build_analyze_save_and_export(tmp_path):
     finally:manager.shutdown();host.close()
 
 
+def test_native_workflow_sets_new_instruments_by_reference_and_binding(tmp_path):
+    host = EditorService()
+    manager = WorkflowManager(host, tmp_path / 'records')
+    source = tmp_path / 'scopes.ms14'
+    operations = [
+        {'operation': 'place_instrument',
+         'arguments': {'instrument': 'oscilloscope', 'reference': 'XSC1', 'x': 270, 'y': 180}},
+        {'operation': 'set_instrument_settings',
+         'arguments': {'component_ref': 'XSC1', 'settings': {'channel_a_scale_v_per_div': 2.5}}},
+        {'operation': 'place_instrument', 'bind': 'scope',
+         'arguments': {'instrument': 'oscilloscope_4ch', 'reference': 'XSC2', 'x': 540, 'y': 180}},
+        {'operation': 'set_instrument_settings',
+         'arguments': {'component_ref': {'$ref': 'scope.component.id'},
+                       'settings': {'channel_a': {'scale_v_per_div': 1.5}}}},
+    ]
+    try:
+        result = finish(manager, manager.start({'steps': [
+            {'kind': 'session', 'id': 'session', 'mode': 'create', 'output_path': str(source)},
+            {'kind': 'edit', 'id': 'build', 'operations': operations},
+            {'kind': 'save', 'id': 'save', 'save_to_source': True},
+        ]}))
+        assert result['status'] == 'complete', result
+        assert result['results']['save']['verification']['passed']
+        for ref, scale in [('XSC1', 2.5), ('XSC2', 1.5)]:
+            assert host.get_instrument_settings(ref)['settings']['channel_a_scale_v_per_div'] == scale
+    finally:
+        manager.shutdown()
+        host.close()
+
+
 def test_native_cancellation_interrupts_inside_a_packed_edit_and_restores_stage(tmp_path):
     host=EditorService();manager=WorkflowManager(host,tmp_path/'records');entered=threading.Event();completed=[]
     try:

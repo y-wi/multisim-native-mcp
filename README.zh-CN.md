@@ -2,7 +2,7 @@
 
 [English](README.md) · 简体中文
 
-Multisim Native MCP 将 AI 助手连接到 Windows 上的 NI Multisim。可搭建和修改原理图、运行原生仿真，并将设计保存为可在 Multisim 中继续编辑的 `.ms14` 文件。
+Multisim Native MCP 将 AI 助手连接到 Windows 上的 NI Multisim。可搭建和修改原理图（包含最右侧仪器栏全部 19 种原生虚拟仪器）、运行原生仿真，并将设计保存为可在 Multisim 中继续编辑的 `.ms14` 文件。
 
 ## v0.5.4 更新
 
@@ -84,15 +84,68 @@ multisim-native-mcp cleanup
 `multisim-native` 遵循开放的 [Agent Skills (`SKILL.md`) 规范](https://agentskills.io/)，且已直接打包进 wheel，**无需额外下载独立 zip**，安装和升级始终与 MCP 版本保持一致：
 
 - [SKILL.md](skills/multisim-native/SKILL.md) — 工作流优先策略与 Multisim 避坑要点
-- [references/editing.md](skills/multisim-native/references/editing.md) — Multisim 14.3 实机核对的 22 种常用器件引脚/命名参数/跨距速查表
+- [references/editing.md](skills/multisim-native/references/editing.md) — Multisim 14.3 实机核对的 22 种常用器件引脚/命名参数/跨距速查表及 19 种虚拟仪器端口与设置速查
 - [references/workflows.md](skills/multisim-native/references/workflows.md) 与 [references/analysis.md](skills/multisim-native/references/analysis.md)
 - `skills/multisim-native/assets/` 内置可直接改写的分压电路、RC 低通滤波（AC/Bode）、交互式数码管/LED 模板
 
 对于不支持本地 `SKILL.md` 目录的客户端（如 Claude Desktop 或自定义 MCP 宿主），服务端同时通过标准 MCP Resource 暴露完整文档（`multisim://skill/SKILL.md`、`multisim://skill/references/editing.md`、`multisim://skill/references/workflows.md`、`multisim://skill/references/analysis.md`），确保跨 Harness 开箱即用。
 
+## 虚拟仪器（右侧仪器栏）
+
+Multisim 最右侧仪器栏中的示波器、函数发生器、万用表等属于原生插件仪器，不在一般元件库（Master Database）中。Multisim Native MCP 通过 Multisim 官方 C++ API 直接原生支持全部 **19** 种仪器（零界面模拟点击、零硬编码地址偏移、零 `.ms14` 二进制修补），完整支持撤销/重做、批处理与工作流、实时交互读数、波形数据导出以及保存回读校验：
+
+| 分类 | 支持的虚拟仪器（参考号前缀） | 核心能力 |
+| --- | --- | --- |
+| 模拟表计与信号源 | 万用表（`XMM`）、函数发生器（`XFG`）、功率表（`XWM`）、电流探针（`XCP`） | 友好模式/波形/频率/幅值/变比设置；`XMM`/`XWM` 实时交互读数；切换万用表模式自动更新 SPICE 内阻 |
+| 时域与频域示波仪器 | 双通道示波器（`XSC`）、四通道示波器（`XSC`）、波特图仪（`XBP`）、频率计（`XFC`） | 时基、各通道量程/耦合/偏移、触发及扫频参数配置；原生导出 `.scp`（示波器）与 `.bod`（波特图仪）数据 |
+| 数字与射频分析仪 | 字信号发生器（`XWG`）、逻辑转换仪（`XLC`）、逻辑分析仪（`XLA`）、伏安特性分析仪（`XIV`）、失真分析仪（`XDA`）、频谱分析仪（`XSA`）、网络分析仪（`XNA`） | 友好参数 + 原始 `NI_EWB_*` 嵌套属性路径读写；`XDA` 实时交互读数 |
+| 实机面板仪器 | 安捷伦 33120A（`XFG`）、安捷伦 34401A（`XMM`）、安捷伦 54622D（`XSC`）、泰克 TDS 2024（`XSC`） | 原生放置、引脚映射、面板/通道参数设置与 `34401A` 实时读数 |
+
+专用 MCP 工具（同样可在 `native_edit_batch` 和 `native_run_workflow` 中以 `place_instrument` / `set_instrument_settings` 调用；使用 `native_search_library` 搜索仪器名时也会自动给出仪器提示）：
+
+- `native_list_instruments(query)` — 支持中英文名、别名、参考号前缀检索全部 19 种虚拟仪器，查看端口引脚、友好设置项、DLL 状态及当前图纸已放置仪器。
+- `native_place_instrument(instrument, x, y, ..., settings)` — 原生放置任意仪器栏虚拟仪器，并可在同一次可撤销事务中写入初始参数。
+- `native_get_instrument_settings(component_ref, include_raw)` / `native_set_instrument_settings(component_ref, settings, include_raw)` — 通过友好参数名或原始 `NI_EWB_*` 嵌套路径读写配置，自动回读验证并持久保存到 `.ms14`。
+- `native_export_instrument_data(component_ref, output_path, overwrite)` — 在交互仿真采集后原生导出示波器 `.scp` 或波特图仪 `.bod` 波形数据文件。
+
+调用示例（`native_place_instrument` 与 `native_set_instrument_settings`）：
+
+```json
+{
+  "instrument": "function_generator",
+  "x": 180,
+  "y": 180,
+  "reference": "XFG1",
+  "settings": {
+    "waveform": "square",
+    "frequency_hz": 1000,
+    "amplitude_vp": 5,
+    "duty_cycle_pct": 40,
+    "offset_v": 2.5
+  }
+}
+```
+
+```json
+{
+  "component_ref": "XSC1",
+  "settings": {
+    "timebase_scale_s_per_div": 0.0005,
+    "channel_a_scale_v_per_div": 2,
+    "channel_a_coupling": "DC",
+    "trigger_edge": "rising",
+    "trigger_level_v": 2.5
+  }
+}
+```
+
+交互仿真期间调用 `native_interactive_status(include_displays=true)` 即可与数码管、LED 一同读取实时 `instrument_readouts`。更多说明见[原理图编辑 — 虚拟仪器](docs/schematic.md#virtual-instruments--虚拟仪器右侧仪器栏)与[MCP 工具参考](docs/tools.md)。
+
 ## 通过助手操作 Multisim
 
 > 用 10 V 电源和两个 1 kΩ 电阻搭建分压电路。将电源从 0 V 扫到 10 V，把中点电压导出为 CSV，并保存为 `divider.ms14`。
+
+> 放置一个函数发生器（1 kHz、5 Vp 方波）、双通道示波器（500 µs/div、通道 A 2 V/div 直流耦合）和直流电压表接到 1 kΩ 负载上；启动交互仿真，读取万用表实时读数、导出示波器 `.scp` 波形，并保存为 `scope_demo.ms14`。
 
 > 打开我的放大器电路，运行交流分析，将输出相对输入的伯德图导出为 PNG。
 

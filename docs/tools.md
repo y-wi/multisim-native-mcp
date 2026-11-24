@@ -1,8 +1,8 @@
 # Tool reference / 工具参考
 
-Use `native_connect_endpoints` for explicit pin/junction wiring, `native_connect_touching` to detect physical contacts, and `native_delete_object` to delete any supported object. The default catalog lists 86 tools; two callable compatibility aliases are documented below.
+Use `native_connect_endpoints` for explicit pin/junction wiring, `native_connect_touching` to detect physical contacts, and `native_delete_object` to delete any supported object. The default catalog lists 91 tools; two callable compatibility aliases are documented below.
 
-明确指定引脚或接点时使用 `native_connect_endpoints`；检查物理接触使用 `native_connect_touching`；删除对象统一使用 `native_delete_object`。默认工具列表为 86 项，下方另列两个可继续调用的兼容别名。
+明确指定引脚或接点时使用 `native_connect_endpoints`；检查物理接触使用 `native_connect_touching`；删除对象统一使用 `native_delete_object`。默认工具列表为 91 项，下方另列两个可继续调用的兼容别名。
 
 | Tool | Parameters |
 | --- | --- |
@@ -31,6 +31,11 @@ Use `native_connect_endpoints` for explicit pin/junction wiring, `native_connect
 | `native_attach` | pid, project_index |
 | `native_create_circuit` | output_path (required absolute filename), title |
 | `native_search_library` | query, limit, family, group, manufacturer, simulatable_only |
+| `native_list_instruments` | query |
+| `native_place_instrument` | instrument, x, y, reference, anchor, pin, angle, mirror_axis, settings, include_raw |
+| `native_get_instrument_settings` | component_ref, include_raw |
+| `native_set_instrument_settings` | component_ref, settings, include_raw |
+| `native_export_instrument_data` | component_ref, output_path, overwrite |
 | `native_place_component` | name, x, y, reference, family, group, manufacturer, parameters, anchor, pin, include_parameters, angle, mirror_axis, value, expression, params |
 | `native_copy_component` | component_ref, new_ref, x, y |
 | `native_delete_object` | object_id, component_ref |

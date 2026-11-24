@@ -79,6 +79,17 @@ Batch edits are atomic by default: a failed operation rolls back that batch whil
 
 批量编辑默认具有原子性：失败时回滚本批，保留之前调用的修改。设置 `atomic: false` 可保留本批已完成操作，只回滚失败步骤。编辑错误会返回回滚范围、保留操作数、句柄失效状态与最新 `state`。首步引用名错误会在创建检查点前被发现，保留现有句柄。
 
+## Virtual instruments / 虚拟仪器（右侧仪器栏）
+
+Multisim's right-hand Instruments toolbar devices (Multimeter, Function Generator, Wattmeter, 2-Ch/4-Ch Oscilloscope, Bode Plotter, Frequency Counter, Word Generator, Logic Converter, Logic Analyzer, IV Analyzer, Distortion Analyzer, Spectrum Analyzer, Network Analyzer, Agilent 33120A/34401A/54622D, Tektronix TDS 2024, and Current Probe) are native snap-in instruments rather than Master Database library components.
+
+Multisim 最右侧仪器栏的虚拟仪器（万用表、函数发生器、功率表、双/四通道示波器、波特图仪、频率计、字信号发生器、逻辑转换仪、逻辑分析仪、伏安特性分析仪、失真分析仪、频谱分析仪、网络分析仪、安捷伦/泰克系列以及电流探针）属于原生插件仪器，不存放在一般元件库中，使用专用仪器工具直接调用与设置：
+
+- `native_list_instruments(query)`: inspect all 19 supported virtual instruments, aliases (English/Chinese/RefDes), pin terminal maps, friendly setting descriptors, DLL availability, and instruments currently placed on the sheet.
+- `native_place_instrument(instrument, x, y, reference?, anchor?, pin?, angle?, mirror_axis?, settings?)`: place any toolbar instrument natively through `CComponentHandler::CreateInstrument` + `CODPasteAct` + `DropComponentsOnDiagram`, optionally configuring its initial settings in the same undoable transaction. Also supported as `place_instrument` / `placeInstrument` inside `native_edit_batch` and `native_run_workflow`.
+- `native_get_instrument_settings(component_ref, include_raw?)` / `native_set_instrument_settings(component_ref, settings, include_raw?)`: read and configure instrument settings with friendly names/enums (e.g. `oscilloscope` `timebase_scale_s_per_div`, `channel_a_scale_v_per_div`, `channel_a_coupling: "DC"`, `trigger_level_v`; `function_generator` `waveform: "square"`, `frequency_hz: 1000`, `amplitude_vp: 5`, `duty_cycle_pct: 40`, `offset_v: 2.5`; `multimeter` `mode: "voltage"`, `signal: "DC"`) or raw native `NI_EWB_*` property paths (including nested channel arrays and maps). Writes are readback-verified and persisted in `.ms14` (and verified on reopen by `native_save_source` / `native_save_copy`). Also supported as `set_instrument_settings` / `setInstrumentSettings` in batches and workflows.
+- `native_export_instrument_data(component_ref, output_path, overwrite?)`: export captured trace files (`.scp` for 2-Ch/4-Ch Oscilloscope, `.bod` for Bode Plotter) collected during interactive simulation. During interactive simulation, `native_interactive_status(include_displays: true)` also reports live `instrument_readouts` (Multimeter, Wattmeter, Distortion Analyzer).
+
 ## Saved sheet layout / 保存图纸布局
 
 Before saving a finished schematic, check that `content_bounds` lies inside `page.bounds` with a margin. Include symbols, labels, text and wire routes. Call `native_fit_sheet(margin, resize)` to shift negative or off-page contents inward by a grid-aligned offset and optionally enlarge the real sheet in one undoable edit, or resize explicitly through `native_edit_batch` with a `sheetSize` operation:

@@ -21,6 +21,7 @@ from .waveforms import parse_raw
 from .workflow_contracts import ComponentRequest, WorkflowPlan
 from .workflow_values import reference_roots, resolve
 from .identity import identity_changes
+from .instruments import compile_instrument_settings, filter_persistent_instrument_props, lookup_by_native, resolve_instrument
 
 
 class NeedsInput(RuntimeError):
@@ -41,9 +42,17 @@ def semantic(value):
             values.sort(key=lambda v:json.dumps(v,sort_keys=True))
         return values
     if isinstance(value, dict):
-        return {k:semantic(v) for k,v in value.items() if k not in {
-            'id','component_id','ci','path','graphic_position','graphics_aligned','bounds','body_bounds',
-            'content_bounds','center','selected','coordinate_system','handle_epoch'}}
+        result={}
+        for k,v in value.items():
+            if k in {
+                'id','component_id','ci','path','graphic_position','graphics_aligned','bounds','body_bounds',
+                'content_bounds','center','selected','coordinate_system','handle_epoch'}:
+                continue
+            if k=='instrument_properties':
+                result[k]=semantic(filter_persistent_instrument_props(v))
+            else:
+                result[k]=semantic(v)
+        return result
     if isinstance(value,float):return round(value,8)
     return value
 
@@ -52,7 +61,8 @@ def remap_bindings(bindings, before, after):
     """Rebind only uniquely identifiable objects across a controlled native reopen."""
     mapping={};old_ids=set()
     def key(c):
-        return digest({'library':c.get('library'),'transform':c['transform'],
+        return digest({'library':c.get('library'),'instrument_type':c.get('instrument_type'),
+                       'transform':c['transform'],
                        'pins':sorted((p['name'],p['x'],p['y']) for p in c['pins'])})
     grouped={}
     for c in after.get('components',[]):grouped.setdefault(key(c),[]).append(c)
@@ -301,6 +311,8 @@ class WorkflowManager:
 
     def _preflight_edits(self,ops,bindings):
         requests=[];schemas={};issues=[];intra_binds=set()
+        placed_instrument_refs = set()
+        has_generated_instrument_ref = False
         for op in ops:
             if op['operation']=='place':
                 a=op.get('arguments',{});r={k:a.get(k,'') for k in ('name','family','group','manufacturer')}
@@ -349,6 +361,63 @@ class WorkflowManager:
                 indexes={p['index'] for p in schema['parameters']}
                 for p in params_list:
                     if p.get('index') not in indexes:issues.append({'operation':op.get('bind') or a.get('ref'),'error':'Unknown parameter slot','available':schema['parameters']})
+            if op['operation']=='placeInstrument':
+                try:
+                    entry=resolve_instrument(a.get('instrument',''))
+                except ValueError as error:
+                    issues.append({'operation':op.get('bind') or a.get('ref'),'error':str(error)})
+                    continue
+                ref = a.get('ref')
+                if isinstance(ref, str) and ref:
+                    placed_instrument_refs.add(ref)
+                else:
+                    has_generated_instrument_ref = True
+                pin_schemas=[{'name':p,'terminal':lbl} for p,lbl in entry['pin_map'].items()]
+                if op.get('bind'):
+                    schemas[op['bind']]={'pins':pin_schemas,'instrument_entry':entry,'parameters':[]}
+                if a.get('anchor')=='pin' and a.get('pin') not in entry['pin_map']:
+                    issues.append({'operation':op.get('bind'),'error':'Unknown instrument placement anchor pin','available':pin_schemas})
+                if 'settings' in a and a['settings'] is not None:
+                    if not isinstance(a['settings'],dict):
+                        issues.append({'operation':op.get('bind') or a.get('ref'),'error':'settings must be a mapping'})
+                    elif a['settings']:
+                        if not reference_roots(a['settings']):
+                            try:
+                                a['writes']=compile_instrument_settings(entry,a.pop('settings'))
+                            except ValueError as error:
+                                issues.append({'operation':op.get('bind') or a.get('ref'),'error':str(error)})
+                    else:
+                        a.pop('settings',None)
+                a['instrument']=entry['instrument']
+                a['dll']=entry['dll']
+                a['manager']=entry['manager']
+                a['res_id']=entry['res_id']
+                a['flags']=entry['flags']
+                a['create_kind']=entry['create_kind']
+            if op['operation']=='setInstrumentSettings' and 'writes' not in a:
+                settings=a.get('settings')
+                if not isinstance(settings,dict) or not settings:
+                    issues.append({'operation':op,'error':'setInstrumentSettings requires a non-empty settings mapping'})
+                elif not reference_roots(settings):
+                    target=a.get('ref');alias=target.get('$ref','').split('.')[0] if isinstance(target,dict) and isinstance(target.get('$ref'),str) else None
+                    entry=None
+                    if alias in schemas and 'instrument_entry' in schemas[alias]:
+                        entry=schemas[alias]['instrument_entry']
+                    elif not (reference_roots(target)&intra_binds):
+                        try:
+                            ref = resolve(target, bindings)
+                            # The native sheet cannot resolve references introduced by this edit stage yet.
+                            if not (isinstance(ref, str) and (has_generated_instrument_ref or ref in placed_instrument_refs)):
+                                info = self.host.call('getInstrumentSettings', {'ref': ref})
+                                entry = lookup_by_native(info.get('instrument_manager'), info.get('instrument_type'))
+                        except Exception as error:
+                            issues.append({'operation':op,'error':str(error)})
+                            entry=False
+                    if entry is not False and entry is not None:
+                        try:
+                            a['writes']=compile_instrument_settings(entry,a.pop('settings'))
+                        except ValueError as error:
+                            issues.append({'operation':op,'error':str(error)})
             if op['operation']=='setParameter' and 'index' not in a:
                 target=a.get('ref');alias=target.get('$ref','').split('.')[0] if isinstance(target,dict) and isinstance(target.get('$ref'),str) else None
                 if alias in schemas:

@@ -293,7 +293,14 @@ function sheetDisplaySettings(args={}) {
 function persistenceSheetData(state) {
   const cache=new Map();
   for(const c of state.components){
-    const model=method('CIRCEXP.dll','?GetModel@CiElement@@','pointer',['pointer'])(ciObject(ptr(c.id)));let text=null;
+    const sym=ptr(c.id);
+    if(typeof isInstrumentSymbol==='function'&&isInstrumentSymbol(sym)){
+      c.is_instrument=true;
+      c.instrument_manager=instrumentManagerForSymbol(sym);
+      c.instrument_type=instrumentTypeForSymbol(sym);
+      try{c.instrument_properties=readInstrumentProperties(sym).raw_properties;}catch(_){c.instrument_properties=null;}
+    }
+    const model=method('CIRCEXP.dll','?GetModel@CiElement@@','pointer',['pointer'])(ciObject(sym));let text=null;
     if(!model.isNull()){
       if(cache.has(model.toString()))text=cache.get(model.toString());
       else{

@@ -75,7 +75,7 @@ const PARAMETER_DESCRIPTORS={
   POTENTIOMETER1_5K:{3:{name:'wiper_step',unit:'%'}}
 };
 function parameterInfo(args,source=null) {
-  const c=source||component(args.ref),ci=ciObject(ptr(c.id));
+  const c=source||component(args.ref),sym=ptr(c.id),ci=ciObject(sym);
   const attr=method('CIRCEXP.dll','?GetAttribute@CiElement@@','pointer',['pointer','uint'])(ci,2);
   const parameters=[];
   if(!attr.isNull() && /CiaParamList/.test(rtti(attr).name)) {
@@ -87,9 +87,14 @@ function parameterInfo(args,source=null) {
   const partKey=(info[1]||'').toUpperCase();
   const slots=PARAMETER_DESCRIPTORS[partKey]||((info[3]||'').toUpperCase()==='VCC'&&/^(VDD|VCC|VSS|VEE)$/i.test(info[1]||'')?PARAMETER_DESCRIPTORS.VCC:null)||((info[0]||'').toUpperCase()==='LED'&&parameters.length>=2?{0:{role:'model_option'},1:{name:'on_current',unit:'A',role:'value'}}:null);
   if(slots)for(const p of parameters)if(slots[p.index])Object.assign(p,slots[p.index]);
-  return {ref:c.ref,ci:ci.toString(),info,parameters};
+  const isInst=typeof isInstrumentSymbol==='function'&&isInstrumentSymbol(sym);
+  return {ref:c.ref,ci:ci.toString(),info,parameters,...(isInst?{is_instrument:true,instrument_manager:instrumentManagerForSymbol(sym),instrument_type:instrumentTypeForSymbol(sym),hint:'This object is a virtual instrument. Use native_get_instrument_settings and native_set_instrument_settings to inspect or configure it.'}:{})};
 }
 function setParameter(args,displayExpression=null) {
+  const target=component(args.ref);
+  if(typeof isInstrumentSymbol==='function'&&isInstrumentSymbol(ptr(target.id))){
+    throw new Error(target.ref+' is a virtual instrument ('+instrumentManagerForSymbol(ptr(target.id))+'); use native_set_instrument_settings instead of native_set_parameter.');
+  }
   const hasValue=args.value!==undefined,hasExpr=args.expression!==undefined;
   if(hasValue===hasExpr)throw new Error('Provide exactly one of value or expression');
   if(hasValue&&(typeof args.value!=='number'||!Number.isFinite(args.value)))throw new Error('Parameter value must be a finite number');
@@ -371,11 +376,15 @@ function pageGeometry(graph=diagram().graph) {
   return {width,height,units:'sheet_units',units_per_inch:96,origin:{x:0,y:0},bounds:{left:0,top:0,right:width,bottom:height},
     paper_width:Math.round(values[1].readFloat()*96),paper_height:Math.round(values[0].readFloat()*96)};
 }
+function openedSheetComponents() {
+  if(typeof restoreCurrentProbeLabels==='function')restoreCurrentProbeLabels();
+  return components();
+}
 function selectSheet(args) {
   const sheets=readSheets(),sheet=sheets.find(s=>args.id?s.id===args.id:s.index===args.index);
   if(!sheet)throw new Error('Schematic sheet not found');selectedSheetId=sheet.id;cachedDiagram=null;
   activateSheet();
-  const info=components();return {sheet,path:info.path,component_count:info.components.length};
+  const info=openedSheetComponents();return {sheet,path:info.path,component_count:info.components.length};
 }
 function projects() {
   const p=project(),count=method('DrwEngine.dll','?GetProjectCount@CWorkSpace@@','uint',['pointer'])(p.workspace),result=[];
@@ -384,7 +393,9 @@ function projects() {
 }
 function selectProject(args) {
   if(!projects().projects.some(p=>p.index===args.index))throw new Error('Project index not found');
-  selectedProjectIndex=args.index;selectedSheetId=null;cachedDiagram=null;activateSheet();return inspect();
+  selectedProjectIndex=args.index;selectedSheetId=null;cachedDiagram=null;activateSheet();
+  if(typeof restoreCurrentProbeLabels==='function')restoreCurrentProbeLabels();
+  return inspect();
 }
 function openDocument(args) {
   const value=pathString(args.path);
@@ -447,9 +458,9 @@ function restoreSnapshot(args) {
   const target=projects().projects.find(p=>p.path.toLowerCase()===args.path.toLowerCase());
   if(!target)throw new Error('Restored native project was not found');selectedProjectIndex=target.index;cachedDiagram=null;
   if(args.original_path)setProjectPath(args.original_path);
-  if(args.sheet_index!==undefined)selectSheet({index:args.sheet_index});
+  const count=args.sheet_index!==undefined?selectSheet({index:args.sheet_index}).component_count:openedSheetComponents().components.length;
   if(args.modified)method('DrwEngine.dll','?SetAllModified@CProject@@','void',['pointer','uint8'])(project().proj,1);
-  return {closed,opened,...inspect(),components:components().components.length};
+  return {closed,opened,...inspect(),components:count};
 }
 function masterDb() {
   const h=method('SCH_CAP.dll','?GetComponentHandler@@','pointer',[],'mscdecl')();
@@ -746,6 +757,10 @@ function modelInfo(args) {
   return {ref:args.ref,model:model.toString(),attributes};
 }
 function setModelText(args) {
+  const target=component(args.ref);
+  if(typeof isInstrumentSymbol==='function'&&isInstrumentSymbol(ptr(target.id))){
+    throw new Error(target.ref+' is a virtual instrument whose SPICE subcircuit is generated dynamically from its settings; use native_set_instrument_settings instead.');
+  }
   const info=modelInfo(args);if(!info.model)throw new Error('Component has no explicit native SPICE model');
   const entry=info.attributes.find(a=>a.index===1&&a.text!==undefined);if(!entry)throw new Error('Native model is not a supported text model');
   const attr=method('CIRCEXP.dll','?GetAttribute@CiElement@@','pointer',['pointer','uint'])(ptr(info.model),1);
@@ -1421,7 +1436,9 @@ function interactiveStatus(args={}) {
   },'int',['pointer','pointer'],'stdcall');
   method('user32.dll','EnumChildWindows','int',['pointer','pointer','pointer'],'stdcall')(hwnd,callback,ptr(0));
   const time=panes.map(text=>text.match(/(?:^|:)\s*([0-9]+(?:[.,][0-9]+)?(?:e[+-]?[0-9]+)?)\s*(ns|us|µs|μs|ms|s)\s*$/i)).find(Boolean);
-  return {...info,state_name:names[info.state]||'unknown',simulation_time_s:time?Number(time[1].replace(',','.'))*({ns:1e-9,us:1e-6,'µs':1e-6,'μs':1e-6,ms:1e-3,s:1}[time[2].toLowerCase()]):null,status_panes:panes,interactive_options:interactiveOptions(),...(args.include_displays?{display_readout_available:info.remote_initialized&&[1,2].includes(info.state),display_states:info.remote_initialized&&[1,2].includes(info.state)?interactiveDisplays():[]}:{})};
+  const activeSim=info.remote_initialized&&[1,2].includes(info.state);
+  const instReadouts=args.include_displays&&activeSim&&typeof liveInstrumentReadouts==='function'?liveInstrumentReadouts():null;
+  return {...info,state_name:names[info.state]||'unknown',simulation_time_s:time?Number(time[1].replace(',','.'))*({ns:1e-9,us:1e-6,'µs':1e-6,'μs':1e-6,ms:1e-3,s:1}[time[2].toLowerCase()]):null,status_panes:panes,interactive_options:interactiveOptions(),...(args.include_displays?{display_readout_available:activeSim,display_states:activeSim?interactiveDisplays():[],...(instReadouts&&instReadouts.length?{instrument_readouts:instReadouts}:{})}:{})};
 }
 function interactiveCommand(args) {
   const names={start:'UnifiedSimulationPlay',resume:'UnifiedSimulationPlay',pause:'UnifiedSimulationPause',stop:'UnifiedSimulationStop'};
@@ -1641,7 +1658,20 @@ function fitSheet(args={}) {
 }
 function circuitState(args={}) {
   const state=componentBounds(),page=pageGeometry(),rawWires=wires().wires;
-  if(args.include_parameters)for(const c of state.components){const p=parameterInfo({ref:c.id},c);c.parameters=p.parameters;c.library={family:p.info[0],name:p.info[1],symbol_family:p.info[2],model:p.info[3]};}
+  for(const c of state.components){
+    const sym=ptr(c.id);
+    if(typeof isInstrumentSymbol==='function'&&isInstrumentSymbol(sym)){
+      c.is_instrument=true;
+      c.instrument_manager=instrumentManagerForSymbol(sym);
+      c.instrument_type=instrumentTypeForSymbol(sym);
+    }
+  }
+  if(args.include_parameters)for(const c of state.components){
+    const p=parameterInfo({ref:c.id},c);c.parameters=p.parameters;c.library={family:p.info[0],name:p.info[1],symbol_family:p.info[2],model:p.info[3]};
+    if(c.is_instrument&&typeof readInstrumentProperties==='function'){
+      try{c.instrument_properties=readInstrumentProperties(ptr(c.id)).raw_properties;}catch(_){}
+    }
+  }
   if(args.include_nets){
     const conn=connectivityInfo(state.components,rawWires);
     const wireNets=new Map(conn.wires.map(w=>[w.id,w.name]));
@@ -1784,20 +1814,26 @@ function validatePlacement(a){
 }
 function validateSequenceOperation(op,a){
   if(op==='remove'){for(const [alias,key] of [['object_id','id'],['component_ref','ref']])if(alias in a){if(key in a&&a[key]!==a[alias])throw new Error('Conflicting '+alias+' and '+key);a[key]=a[alias];delete a[alias];}}
-  const required={place:['name','x','y'],move:['ref','dx','dy'],alignPin:['ref','pin','x','y'],moveLabel:['ref','x','y'],transform:['ref'],
+  const required={place:['name','x','y'],placeInstrument:['dll','manager','res_id','flags','x','y'],setInstrumentSettings:['ref','writes'],move:['ref','dx','dy'],alignPin:['ref','pin','x','y'],moveLabel:['ref','x','y'],transform:['ref'],
     wire:['source','target'],connectEndpoint:['source','target'],route:['id','points'],autoWire:['id'],
     setParameter:['ref'],addText:['text','x','y'],updateText:['id'],deleteText:['id'],updateSheet:[],updatePort:['id'],moveJunction:['id','x','y'],labelWire:['id','name'],splitWire:['id','x','y'],
     rename:['ref','new_ref'],remove:[],connectTouching:[],sheetSize:['width','height'],sheetTitle:['title'],repairWireGeometry:[],fitSheet:[],translateSheet:['dx','dy']};
   if(!(op in required))throw new Error('Operation requires an individual native transaction: '+op);
   for(const k of required[op])if(!(k in a))throw new Error(op+' requires '+k);
-  for(const k of ['ref','id','name','text','family','group','manufacturer','title','page','new_ref','expression','pin','role'])
+  for(const k of ['ref','id','name','text','family','group','manufacturer','title','page','new_ref','expression','pin','role','dll','manager','create_kind','instrument'])
     if(k in a&&a[k]!==undefined&&(typeof a[k]!=='string'||a[k].includes('\0')))throw new Error('Invalid '+k);
-  for(const k of ['ref','id','new_ref','name','pin','role'])
+  for(const k of ['ref','id','new_ref','name','pin','role','dll','manager'])
     if(k in a&&a[k]!==undefined&&!a[k])throw new Error('Invalid '+k);
   if(op==='labelWire'&&!a.name.trim())throw new Error('Invalid name');
-  for(const k of ['x','y','dx','dy','index','width','height','margin'])if(k in a&&a[k]!==undefined&&(!Number.isInteger(a[k])||a[k]<-2147483648||a[k]>2147483647))throw new Error('Invalid '+k);
-  if(op==='place'&&!['origin','center','pin'].includes(a.anchor||'origin'))throw new Error('Invalid placement anchor');
+  for(const k of ['x','y','dx','dy','index','width','height','margin','res_id','flags'])if(k in a&&a[k]!==undefined&&(!Number.isInteger(a[k])||a[k]<-2147483648||a[k]>2147483647))throw new Error('Invalid '+k);
+  if((op==='place'||op==='placeInstrument')&&!['origin','center','pin'].includes(a.anchor||'origin'))throw new Error('Invalid placement anchor');
   if(op==='place')validatePlacement(a);
+  if(op==='placeInstrument'){
+    if('angle' in a&&(typeof a.angle!=='number'||!Number.isFinite(a.angle)))throw new Error('Rotation must be finite');
+    if('mirror_axis' in a&&!['horizontal','vertical'].includes(a.mirror_axis))throw new Error('Invalid mirror axis');
+    if('writes' in a&&a.writes!==undefined&&!Array.isArray(a.writes))throw new Error('Invalid instrument writes');
+  }
+  if(op==='setInstrumentSettings'&&(!Array.isArray(a.writes)||!a.writes.length))throw new Error('setInstrumentSettings requires nonempty writes');
   if(op==='transform'&&((('angle' in a)===('axis' in a))||('angle' in a&&(typeof a.angle!=='number'||!Number.isFinite(a.angle)))||('axis' in a&&!['horizontal','vertical'].includes(a.axis))))throw new Error('Invalid transform');
   if(op==='remove'&&!a.ref&&!a.id)throw new Error('remove requires ref or id');
   if(op==='updateText'&&!['text','x','y'].some(k=>k in a))throw new Error('updateText requires text, x or y');
@@ -1886,7 +1922,7 @@ const editorHandlers={
     throw new Error('Electrical pin not found: '+c.ref+'.'+args.pin);
   },
   wiringOptions,connectTouching,autoWire:rerouteNativeWire,fitSheet,translateSheet,
-  componentBounds,synchronizeGraphics,circuitState,projectCircuitState,verifySavedCopy,componentLabels,moveLabel:moveComponentLabel,
+  openedSheetComponents,componentBounds,synchronizeGraphics,circuitState,projectCircuitState,verifySavedCopy,componentLabels,moveLabel:moveComponentLabel,
   simulationCommand:args=>({result:method('SpiceifsSch.dll','?ExecuteShellCmd@CSchSpiceSession@SpiceifsSch@@','int',['pointer','pointer'])(simSession(),Memory.allocUtf16String(args.command)),...simulationInfo()}),
   cleanupNumericSession:()=>{
     const info=simulationInfo();
